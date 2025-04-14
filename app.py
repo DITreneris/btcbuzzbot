@@ -536,7 +536,7 @@ def llm_admin():
                               error_message=f"Error accessing LLM functionality: {str(e)}",
                               llm_enabled=False)
 
-@app.route('/control_bot/<action>')
+@app.route('/control_bot/<action>', methods=['GET', 'POST'])
 def control_bot(action):
     """
     Control the Twitter Bot - start, stop, tweet now
@@ -548,7 +548,7 @@ def control_bot(action):
         elif action == 'stop':
             scheduler.stop()
             flash('Bot stopped successfully!', 'success')
-        elif action == 'tweet':
+        elif action == 'tweet' or action == 'tweet_now':
             success, tweet_info = post_tweet()
             if success:
                 flash(f'Tweet posted successfully! Tweet ID: {tweet_info["tweet_id"]}', 'success')
