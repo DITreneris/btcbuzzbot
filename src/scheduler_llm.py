@@ -8,9 +8,13 @@ Bitcoin price and market conditions.
 
 import logging
 import os
+import sys
 import random
 import datetime
 from typing import Dict, Any, Optional
+
+# Add the root directory to path to help with imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Configure logging
 logging.basicConfig(
@@ -19,18 +23,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger('scheduler_llm')
 
-# Import required modules, with fallbacks for testing
+# Import tweet handler - try multiple approaches
+tweet_post_function = None
+
+# First try the standard import from src.tweet_handler
+try:
+    from src.tweet_handler import post_tweet
+    tweet_post_function = post_tweet
+    logger.info("Using src.tweet_handler.post_tweet")
+except ImportError:
+    # Then try relative import
+    try:
+        from tweet_handler import post_tweet
+        tweet_post_function = post_tweet
+        logger.info("Using tweet_handler.post_tweet")
+    except ImportError:
+        # Try the direct implementation
+        try:
+            import tweet_handler_direct
+            tweet_post_function = tweet_handler_direct.post_tweet
+            logger.info("Using tweet_handler_direct.post_tweet")
+        except ImportError:
+            logger.error("Could not import any tweet_handler module")
+
+# Import other required modules, with fallbacks for testing
 try:
     from src.llm_integration import initialize_ollama, ContentGenerator
     from src.prompt_templates import PromptManager
-    from src.tweet_handler import post_tweet, get_tweet_handler
     from src.database import get_db_connection
 except ImportError:
     logger.warning("Running with mock imports - some functionality may be limited")
     try:
         from llm_integration import initialize_ollama, ContentGenerator
         from prompt_templates import PromptManager
-        from tweet_handler import post_tweet, get_tweet_handler
         from database import get_db_connection
     except ImportError:
         logger.error("Could not import required modules for LLM scheduler integration")
@@ -278,6 +303,14 @@ class LLMTweetGenerator:
                 'success': False,
                 'error': 'LLM generator not initialized'
             }
+
+        # Check if tweet posting function is available
+        if tweet_post_function is None:
+            logger.error("No tweet posting function available")
+            return {
+                'success': False,
+                'error': 'No tweet posting function available'
+            }
             
         try:
             # Generate content
@@ -287,7 +320,7 @@ class LLMTweetGenerator:
                 return generated
                 
             # Post the tweet
-            tweet_result = post_tweet(
+            tweet_result = tweet_post_function(
                 content=generated['content'],
                 content_type=generated['content_type'],
                 price=generated['price']
@@ -316,7 +349,7 @@ class LLMTweetGenerator:
             
             return {
                 'success': True,
-                'post_id': tweet_result['post_id'],
+                'post_id': tweet_result.get('post_id', 0),
                 'tweet_id': tweet_result.get('tweet_id'),
                 'content': generated['content'],
                 'content_type': generated['content_type'],
