@@ -211,7 +211,13 @@ def fetch_bitcoin_price():
             "include_24hr_change": "true"
         }
         
-        response = requests.get(url, params=params, timeout=10)
+        # Add CoinGecko API key to headers
+        headers = {}
+        api_key = os.environ.get("COINGECKO_API_KEY")
+        if api_key:
+            headers["x-cg-api-key"] = api_key
+        
+        response = requests.get(url, params=params, headers=headers, timeout=10)
         data = response.json()
         
         if response.status_code == 200 and "bitcoin" in data:
