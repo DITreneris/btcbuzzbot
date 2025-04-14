@@ -5,16 +5,50 @@ Handles the posting of tweets using the TwitterClient.
 
 import logging
 import asyncio
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from src.twitter_client import TwitterClient
-from src.database import Database
-from src.config import Config
-from src.price_fetcher import PriceFetcher
-
-# Setup logger
+# Configure basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger('btcbuzzbot.tweet_handler')
+
+# Flag to track if TwitterClient is available
+TWITTER_CLIENT_AVAILABLE = False
+TWEEPY_AVAILABLE = False
+
+# Try different import approaches
+try:
+    # First try absolute imports for project modules
+    from src.twitter_client import TwitterClient
+    from src.database import Database
+    from src.config import Config
+    from src.price_fetcher import PriceFetcher
+    TWITTER_CLIENT_AVAILABLE = True
+    logger.info("TwitterClient module imported successfully")
+except ImportError:
+    try:
+        # Then try relative imports
+        from twitter_client import TwitterClient
+        from database import Database
+        from config import Config
+        from price_fetcher import PriceFetcher
+        TWITTER_CLIENT_AVAILABLE = True
+        logger.info("TwitterClient module imported via relative import")
+    except ImportError:
+        # Log but don't crash, implement fallback
+        logger.error("Could not import TwitterClient module, will use direct tweepy implementation")
+        # Check if tweepy is at least available
+        try:
+            import tweepy
+            from dotenv import load_dotenv
+            TWEEPY_AVAILABLE = True
+            logger.info("Tweepy available for direct implementation")
+        except ImportError:
+            logger.error("Tweepy not available - tweet functionality will be disabled")
 
 class TweetHandler:
     def __init__(self):
@@ -153,6 +187,11 @@ def post_tweet(content: str, content_type: str, price: Optional[float] = None) -
     Returns:
         Dictionary with result information
     """
+    # Fallback implementation if TwitterClient is not available
+    if not TWITTER_CLIENT_AVAILABLE and TWEEPY_AVAILABLE:
+        return direct_tweepy_post(content, content_type, price)
+    
+    # Standard implementation with TwitterClient
     handler = get_tweet_handler()
     
     # Create a new event loop for async operation if needed
@@ -169,6 +208,81 @@ def post_tweet(content: str, content_type: str, price: Optional[float] = None) -
         return result
     except Exception as e:
         logger.error(f"Error in post_tweet wrapper: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+def direct_tweepy_post(content: str, content_type: str, price: Optional[float] = None) -> Dict[str, Any]:
+    """
+    Post a tweet directly using tweepy (fallback implementation).
+    
+    Args:
+        content: The content to post
+        content_type: The type of content (quote, joke, etc.)
+        price: Current BTC price (optional, will be fetched if not provided)
+        
+    Returns:
+        Dictionary with result information
+    """
+    try:
+        # Load environment variables
+        load_dotenv()
+        
+        # Get Twitter API credentials
+        api_key = os.environ.get('TWITTER_API_KEY')
+        api_secret = os.environ.get('TWITTER_API_SECRET')
+        access_token = os.environ.get('TWITTER_ACCESS_TOKEN')
+        access_token_secret = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET')
+        
+        # Check credentials
+        if not all([api_key, api_secret, access_token, access_token_secret]):
+            logger.error("Twitter API credentials are not properly set in .env file")
+            return {
+                'success': False,
+                'error': 'Twitter API credentials missing'
+            }
+        
+        # Format the tweet
+        tweet = content
+        
+        # Add price information if provided
+        if price is not None:
+            emoji = "📈"  # Default emoji
+            tweet = f"BTC: ${price:,.2f} {emoji}\n{content}\n#Bitcoin #Crypto"
+        
+        # Initialize tweepy client
+        client = tweepy.Client(
+            consumer_key=api_key,
+            consumer_secret=api_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret
+        )
+        
+        # Post the tweet
+        logger.info(f"Posting tweet via direct tweepy implementation: {tweet}")
+        response = client.create_tweet(text=tweet)
+        
+        if response and hasattr(response, 'data') and 'id' in response.data:
+            tweet_id = response.data['id']
+            
+            logger.info(f"Successfully posted tweet with ID: {tweet_id}")
+            
+            return {
+                'success': True,
+                'tweet_id': tweet_id,
+                'post_id': 0,  # No database integration in fallback
+                'tweet': tweet
+            }
+        else:
+            logger.error("Failed to post tweet - no tweet ID returned")
+            return {
+                'success': False,
+                'error': 'Failed to post tweet - unexpected response format'
+            }
+    
+    except Exception as e:
+        logger.error(f"Error posting tweet via direct tweepy: {str(e)}")
         return {
             'success': False,
             'error': str(e)

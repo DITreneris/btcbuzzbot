@@ -9,6 +9,12 @@ import sys
 import tweepy
 from dotenv import load_dotenv
 import datetime
+import asyncio
+
+# Add the current directory to the path for imports
+sys.path.insert(0, os.path.abspath('.'))
+
+from src.tweet_handler import get_tweet_handler, post_tweet
 
 def send_test_tweet(message=None):
     """
@@ -82,6 +88,20 @@ def send_test_tweet(message=None):
         print(f"   Error: {str(e)}")
         return False
 
+async def test_tweet_handler():
+    """Test the tweet handler directly"""
+    print("Testing tweet handler...")
+    
+    # Test posting a tweet directly
+    content = "Testing the tweet handler! HODL to the moon! 🚀 #Testing"
+    result = post_tweet(content=content, content_type="test")
+    
+    if result['success']:
+        print(f"✅ Tweet posted successfully! Tweet ID: {result['tweet_id']}")
+        print(f"Tweet content: {result['tweet']}")
+    else:
+        print(f"❌ Tweet posting failed! Error: {result.get('error', 'Unknown error')}")
+
 if __name__ == "__main__":
     print("BTCBuzzBot - Test Tweet Utility")
     print("-" * 40)
@@ -95,4 +115,13 @@ if __name__ == "__main__":
         print("Using default test message...")
     
     # Send the test tweet
-    send_test_tweet(message) 
+    send_test_tweet(message)
+
+    # Run the test function
+    print("Starting tweet test...")
+    result = post_tweet(content="Test tweet from BTCBuzzBot!", content_type="test")
+    
+    if result['success']:
+        print(f"✅ Tweet posted successfully! Tweet ID: {result['tweet_id']}")
+    else:
+        print(f"❌ Tweet posting failed! Error: {result.get('error', 'Unknown error')}") 
