@@ -70,12 +70,18 @@ function refreshBitcoinPrice(showAnimation = true) {
     const priceElement = document.getElementById('current-price');
     const changeElement = document.getElementById('price-change');
     const refreshButton = document.getElementById('refresh-price');
+    const errorMsgElement = document.querySelector('.price-card .text-muted:last-child');
     
     if (!priceElement || !refreshButton) return;
     
     if (showAnimation) {
         refreshButton.classList.add('refreshing');
         refreshButton.disabled = true;
+        
+        // Add loading message
+        if (errorMsgElement) {
+            errorMsgElement.innerHTML = '<i class="fas fa-sync-alt fa-spin me-1"></i> Fetching latest price...';
+        }
     }
     
     fetch('/api/price/refresh')
@@ -103,23 +109,45 @@ function refreshBitcoinPrice(showAnimation = true) {
                     changeElement.innerHTML = `<i class="fas ${changeIcon} me-1"></i>${data.change}`;
                 }
                 
+                // Update timestamp
+                if (errorMsgElement) {
+                    const now = new Date();
+                    errorMsgElement.innerHTML = `<i class="far fa-clock me-1"></i> Last updated: ${now.toISOString()}`;
+                }
+                
                 // Apply fade-in animation
                 priceElement.classList.add('fade-in');
                 setTimeout(() => {
                     priceElement.classList.remove('fade-in');
                 }, 500);
                 
+                // Show success message
+                showAlert('Bitcoin price updated successfully!', 'success');
+                
                 // Reload chart if it exists
                 const chartCanvas = document.getElementById('price-chart');
                 if (chartCanvas && window.priceChart) {
                     initializePriceChart();
                 }
+                
+                // Reload the page after a successful price fetch to update server-side data
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
             } else {
                 console.error('Error refreshing price:', data.error);
+                if (errorMsgElement) {
+                    errorMsgElement.innerHTML = `<i class="fas fa-exclamation-circle me-1"></i> Error: ${data.error || 'Failed to fetch price'}`;
+                }
+                showAlert('Error refreshing price: ' + (data.error || 'Unknown error'), 'danger');
             }
         })
         .catch(error => {
             console.error('Error fetching price data:', error);
+            if (errorMsgElement) {
+                errorMsgElement.innerHTML = '<i class="fas fa-exclamation-circle me-1"></i> Network error, please try again';
+            }
+            showAlert('Network error fetching price data', 'danger');
         })
         .finally(() => {
             if (showAnimation) {

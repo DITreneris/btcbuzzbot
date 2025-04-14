@@ -264,7 +264,16 @@ def get_basic_stats():
             'SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1'
         ).fetchone()
         
-        return {
+        # If we don't have a price yet, fetch one now
+        if not latest_price:
+            price_data = fetch_bitcoin_price()
+            if price_data["success"]:
+                # Try to get the price again after fetch
+                latest_price = conn.execute(
+                    'SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1'
+                ).fetchone()
+                
+        result = {
             'total_posts': total_posts,
             'total_quotes': total_quotes,
             'total_jokes': total_jokes,
@@ -272,6 +281,15 @@ def get_basic_stats():
             'avg_retweets': round(avg_retweets, 1),
             'latest_price': dict(latest_price) if latest_price else None
         }
+        
+        # Add price_change to stats if we have a price
+        if latest_price and 'price_change' not in result:
+            # Try to get the latest bitcoin price with change data
+            price_data = fetch_bitcoin_price()
+            if price_data["success"]:
+                result['price_change'] = price_data["price_change"]
+        
+        return result
 
 def get_recent_errors(limit=5):
     """Get recent error logs"""
