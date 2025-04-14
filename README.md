@@ -45,24 +45,24 @@
 ### Local Development
 
 1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/btcbuzzbot.git
-   cd btcbuzzbot
-   ```
+```bash
+git clone https://github.com/yourusername/btcbuzzbot.git
+cd btcbuzzbot
+```
 
 2. **Set up a virtual environment**
-   ```bash
-   python -m venv venv
-   # On Windows
+```bash
+python -m venv venv
+# On Windows
    venv\Scripts\activate
    # On macOS/Linux
-   source venv/bin/activate
-   ```
+source venv/bin/activate
+```
 
 3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+pip install -r requirements.txt
+```
 
 4. **Configure environment variables**
    Create a `.env` file in the root directory with the following variables:
@@ -87,24 +87,24 @@
    ```
 
 5. **Initialize the database**
-   ```bash
+```bash
    python init_db.py
    ```
 
 6. **Run the application**
-   ```bash
+```bash
    flask run
-   ```
+```
 
 ### Heroku Deployment
 
 1. **Create a Heroku app**
-   ```bash
+```bash
    heroku create btcbuzzbot-yourname
-   ```
+```
 
 2. **Configure Heroku environment variables**
-   ```bash
+```bash
    heroku config:set TWITTER_API_KEY=your_api_key
    heroku config:set TWITTER_API_SECRET=your_api_secret
    heroku config:set TWITTER_ACCESS_TOKEN=your_access_token

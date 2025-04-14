@@ -8,6 +8,9 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import scheduler
+import json
+import threading
 
 # LLM Integration - Import API module
 try:
@@ -18,7 +21,7 @@ except ImportError:
     print("Ollama LLM API import failed - LLM functionality will be disabled")
 
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, static_folder=os.environ.get('STATIC_FOLDER', 'static'), template_folder=os.environ.get('TEMPLATE_FOLDER', 'templates'))
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key')
 app.config['DATABASE'] = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
 
@@ -30,6 +33,23 @@ limiter = Limiter(
     storage_uri="memory://",
     strategy="fixed-window"
 )
+
+# Initialize the scheduler in a background thread
+def start_scheduler():
+    time.sleep(5)  # Wait for the app to fully initialize
+    scheduler.init_db()
+    scheduler.log_status("Info", "Application started")
+    
+    # Only auto-start the scheduler if it was running before
+    last_status = scheduler.get_last_status()
+    if last_status and last_status.get('status') == 'Running':
+        scheduler.start()
+        scheduler.log_status("Info", "Scheduler auto-started on application launch")
+
+# Start the scheduler in a separate thread to avoid blocking the app
+scheduler_thread = threading.Thread(target=start_scheduler)
+scheduler_thread.daemon = True
+scheduler_thread.start()
 
 # Database helper functions
 def get_db_connection():
@@ -349,10 +369,16 @@ def get_scheduler_config():
     from dotenv import load_dotenv
     load_dotenv()
     
-    return {
+    config = {
         'post_times': os.environ.get('POST_TIMES', '08:00,12:00,16:00,20:00').split(','),
         'timezone': os.environ.get('TIMEZONE', 'UTC')
     }
+    
+    # Get interval configuration
+    interval_config = scheduler.get_interval_config()
+    config.update(interval_config)
+    
+    return config
 
 # Routes - Home and About
 @app.route('/')
@@ -510,68 +536,54 @@ def llm_admin():
                               error_message=f"Error accessing LLM functionality: {str(e)}",
                               llm_enabled=False)
 
-@app.route('/admin/control/<action>', methods=['POST'])
-@limiter.limit("10 per minute")
+@app.route('/control_bot/<action>')
 def control_bot(action):
-    """Control bot operation"""
-    # This would interface with the bot functions
-    # For now, just update the status in the database
-    
-    if action == 'start':
-        message = 'Bot started'
-        status = 'Running'
-    elif action == 'stop':
-        message = 'Bot stopped'
-        status = 'Stopped'
-    elif action == 'tweet_now':
-        message = 'Manual tweet triggered'
-        status = 'Running'
-        
-        # Try to import and use the fixed_tweet module
-        try:
-            print("\n*** TWEET ATTEMPT VIA FIXED_TWEET MODULE ***")
-            import fixed_tweet
-            if fixed_tweet.post_tweet():
-                message = "Tweet posted successfully!"
-                status = 'Running'
+    """
+    Control the Twitter Bot - start, stop, tweet now
+    """
+    try:
+        if action == 'start':
+            scheduler.start()
+            flash('Bot started successfully!', 'success')
+        elif action == 'stop':
+            scheduler.stop()
+            flash('Bot stopped successfully!', 'success')
+        elif action == 'tweet':
+            success, tweet_info = post_tweet()
+            if success:
+                flash(f'Tweet posted successfully! Tweet ID: {tweet_info["tweet_id"]}', 'success')
             else:
-                # If fixed_tweet fails, try with heroku_tweet_debug
-                try:
-                    print("\n*** TRYING HEROKU_TWEET_DEBUG MODULE ***")
-                    import heroku_tweet_debug
-                    heroku_tweet_debug.main()
-                    message = "Tweet debugger executed - check logs"
-                    status = 'Running'
-                except Exception as e2:
-                    print(f"Error in heroku_tweet_debug: {e2}")
-                    message = "Failed to post tweet"
-                    status = 'Error'
-                
-        except Exception as e:
-            print(f"Error in tweet_now action: {e}")
-            import traceback
-            traceback.print_exc()
-            message = f"Error posting tweet: {str(e)}"
-            status = 'Error'
+                flash(f'Failed to post tweet: {tweet_info["error"]}', 'danger')
+        else:
+            flash('Invalid action!', 'danger')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'danger')
+    
+    return redirect(url_for('admin_panel'))
+
+@app.route('/update_schedule', methods=['POST'])
+def update_schedule():
+    """
+    Update the scheduler configuration
+    """
+    try:
+        interval_hours = int(request.form.get('interval_hours', 0))
+        interval_minutes = int(request.form.get('interval_minutes', 0))
+        
+        # Calculate total minutes
+        total_minutes = (interval_hours * 60) + interval_minutes
+        
+        # Validate input
+        if total_minutes < 5:
+            flash('Schedule interval must be at least 5 minutes!', 'danger')
+            return redirect(url_for('admin_panel'))
             
-    elif action == 'seed_prices':
-        # Seed the database with 7 days of price data for testing
-        seed_price_data()
-        message = 'Price data seeded successfully'
-        status = 'Running'
-    else:
-        flash(f'Unknown action: {action}', 'danger')
-        return redirect(url_for('admin_panel'))
+        # Update the scheduler configuration
+        scheduler.update_config(interval_minutes=total_minutes)
+        flash('Scheduler configuration updated successfully!', 'success')
+    except Exception as e:
+        flash(f'Error updating schedule: {str(e)}', 'danger')
     
-    # Update bot status
-    with get_db_connection() as conn:
-        conn.execute(
-            'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
-            (datetime.datetime.utcnow().isoformat(), status, message)
-        )
-        conn.commit()
-    
-    flash(message, 'success')
     return redirect(url_for('admin_panel'))
 
 def seed_price_data():
