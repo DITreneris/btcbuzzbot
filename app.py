@@ -63,6 +63,48 @@ def init_db():
             )
         ''')
         
+        # Create posts table
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                content TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                tweet_id TEXT,
+                likes INTEGER DEFAULT 0,
+                retweets INTEGER DEFAULT 0
+            )
+        ''')
+        
+        # Create quotes table
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                quote TEXT NOT NULL,
+                author TEXT,
+                used BOOLEAN DEFAULT 0
+            )
+        ''')
+        
+        # Create jokes table
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS jokes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                joke TEXT NOT NULL,
+                used BOOLEAN DEFAULT 0
+            )
+        ''')
+        
+        # Create prices table
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS prices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                price REAL NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'USD'
+            )
+        ''')
+        
         # Check if admin user exists, if not create default
         admin = conn.execute('SELECT * FROM web_users WHERE username = ?', ('admin',)).fetchone()
         if not admin:
