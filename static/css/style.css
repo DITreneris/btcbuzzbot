@@ -1,0 +1,440 @@
+/* BTCBuzzBot Modern Styles */
+
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Roboto:wght@300;400;500&family=Inter:wght@400;500;600;700&display=swap');
+
+/* Global Styles & Color Palette */
+:root {
+  /* New Modern Color Palette */
+  --primary: #1E2A38;         /* Deep navy */
+  --primary-dark: #16202B;    /* Darker navy */
+  --primary-light: #2C3E50;   /* Lighter navy */
+  --accent: #F9B917;          /* Golden yellow - Bitcoin color */
+  --secondary: #E4E7EB;       /* Cool gray */
+  --background: #F8F9FA;      /* Soft white background */
+  --success: #10B981;         /* Bold green */
+  --danger: #EF4444;          /* Red */
+  --warning: #F59E0B;         /* Orange/amber */
+  --info: #3B82F6;            /* Blue */
+  --text-primary: #1E293B;    /* Dark text */
+  --text-secondary: #64748B;  /* Medium gray text */
+  --text-light: #94A3B8;      /* Light gray text */
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-xxl: 3rem;
+  
+  /* Border Radius */
+  --radius-sm: 0.25rem;
+  --radius: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-full: 9999px;
+}
+
+/* Base Styles */
+body {
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background-color: var(--background);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: var(--spacing-md);
+  color: var(--primary);
+}
+
+h1 {
+  font-size: 2rem; /* 32px */
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 1.5rem; /* 24px */
+}
+
+h3 {
+  font-size: 1.25rem; /* 20px */
+}
+
+h4 {
+  font-size: 1.125rem; /* 18px */
+}
+
+p {
+  margin-bottom: var(--spacing-md);
+}
+
+.lead {
+  font-size: 1.125rem;
+  font-weight: 300;
+}
+
+.text-small {
+  font-size: 0.875rem;
+}
+
+.text-xs {
+  font-size: 0.75rem;
+}
+
+/* Containers and Layout */
+main {
+  flex: 1;
+  padding: var(--spacing-lg) 0;
+}
+
+.card {
+  background: #fff;
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: var(--spacing-lg);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.card-header {
+  background-color: #fff;
+  border-bottom: 1px solid var(--secondary);
+  padding: var(--spacing-md) var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  border-top-left-radius: var(--radius);
+  border-top-right-radius: var(--radius);
+}
+
+.card-header i {
+  margin-right: var(--spacing-sm);
+  color: var(--accent);
+}
+
+.card-body {
+  padding: var(--spacing-lg);
+}
+
+.card-footer {
+  background-color: #fff;
+  border-top: 1px solid var(--secondary);
+  padding: var(--spacing-md) var(--spacing-lg);
+}
+
+/* Header and Navigation */
+.navbar {
+  background-color: var(--primary) !important;
+  box-shadow: var(--shadow);
+  padding: var(--spacing-md) 0;
+}
+
+.navbar-brand {
+  font-family: 'Poppins', 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 1.4rem;
+}
+
+.nav-link {
+  font-weight: 500;
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+  transition: all 0.2s;
+}
+
+.nav-link:hover {
+  color: var(--accent) !important;
+}
+
+/* Bitcoin accent elements */
+.bitcoin-icon {
+  color: var(--accent);
+}
+
+/* Dashboard */
+.hero-card {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+  color: white;
+  box-shadow: var(--shadow-lg);
+  border: none;
+  overflow: hidden;
+  position: relative;
+}
+
+.hero-card::after {
+  content: '';
+  position: absolute;
+  right: -50px;
+  top: -50px;
+  width: 200px;
+  height: 200px;
+  background: rgba(249, 185, 23, 0.15);
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.hero-card .card-body {
+  position: relative;
+  z-index: 1;
+}
+
+.price-card {
+  border: none;
+  border-left: 4px solid var(--accent);
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.price-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-lg);
+}
+
+.price-up {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.price-down {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.price-stable {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Bitcoin price history chart */
+.chart-container {
+  height: 300px;
+  margin: var(--spacing-lg) 0;
+  background: white;
+  border-radius: var(--radius);
+  padding: var(--spacing-md);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Tweet styles */
+.tweet-card {
+  border-radius: var(--radius);
+  margin-bottom: var(--spacing-md);
+  transition: all 0.2s;
+  box-shadow: var(--shadow-sm);
+  border: none;
+}
+
+.tweet-card:hover {
+  box-shadow: var(--shadow);
+}
+
+.tweet-header {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--secondary);
+}
+
+.tweet-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  margin-right: var(--spacing-md);
+  object-fit: cover;
+  box-shadow: var(--shadow-sm);
+}
+
+.tweet-info {
+  flex: 1;
+}
+
+.tweet-content {
+  padding: var(--spacing-md);
+  font-size: 1.1rem;
+}
+
+.tweet-actions {
+  color: var(--text-secondary);
+  padding: 0 var(--spacing-md) var(--spacing-md);
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+/* Admin panel */
+.admin-card {
+  border-radius: var(--radius);
+  margin-bottom: var(--spacing-lg);
+  border-top: 3px solid var(--accent);
+}
+
+.form-control:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.25rem rgba(249, 185, 23, 0.25);
+}
+
+/* Buttons */
+.btn {
+  font-weight: 500;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius);
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
+.btn-accent {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.btn-accent:hover {
+  background-color: #E6A515;
+  border-color: #E6A515;
+  color: white;
+}
+
+.btn-outline-accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-outline-accent:hover {
+  background-color: var(--accent);
+  color: white;
+}
+
+/* Stats Cards */
+.stat-card {
+  text-align: center;
+  padding: var(--spacing-md);
+  border-radius: var(--radius);
+  background: white;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow);
+}
+
+.stat-number {
+  font-size: 2rem;
+  font-weight: 700;
+  font-family: 'Poppins', 'Inter', sans-serif;
+  color: var(--primary);
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-top: var(--spacing-xs);
+}
+
+/* Footer */
+footer {
+  margin-top: auto;
+  background-color: var(--primary);
+  color: white;
+  padding: var(--spacing-xl) 0;
+}
+
+footer h5 {
+  color: white;
+  font-weight: 600;
+  margin-bottom: var(--spacing-md);
+}
+
+footer a {
+  color: var(--secondary);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+footer a:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+footer hr {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Health status indicator */
+.health-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+.health-good {
+  background-color: var(--success);
+}
+
+.health-warning {
+  background-color: var(--warning);
+}
+
+.health-error {
+  background-color: var(--danger);
+}
+
+/* Badges */
+.badge {
+  font-weight: 500;
+  padding: 0.35em 0.65em;
+  border-radius: var(--radius-sm);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .chart-container {
+    height: 220px;
+  }
+  
+  h1 {
+    font-size: 1.75rem;
+  }
+  
+  h2 {
+    font-size: 1.35rem;
+  }
+  
+  .card-body {
+    padding: var(--spacing-md);
+  }
+  
+  .stat-number {
+    font-size: 1.5rem;
+  }
+} 

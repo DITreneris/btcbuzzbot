@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}BTCBuzzBot{% endblock %}</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon.png') }}">
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome for icons -->
@@ -14,10 +16,10 @@
 </head>
 <body>
     <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('home') }}">
-                <i class="fab fa-bitcoin text-warning"></i> BTCBuzzBot
+                <i class="fab fa-bitcoin bitcoin-icon"></i> BTCBuzzBot
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -25,23 +27,33 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('home') }}">Home</a>
+                        <a class="nav-link" href="{{ url_for('home') }}">
+                            <i class="fas fa-home"></i> Home
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('posts') }}">Tweet History</a>
+                        <a class="nav-link" href="{{ url_for('posts') }}">
+                            <i class="fas fa-history"></i> Tweet History
+                        </a>
                     </li>
                 </ul>
                 <ul class="navbar-nav">
                     {% if session.get('user_id') %}
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('admin_panel') }}">Admin</a>
+                            <a class="nav-link" href="{{ url_for('admin_panel') }}">
+                                <i class="fas fa-cog"></i> Admin
+                            </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                            <a class="nav-link" href="{{ url_for('logout') }}">
+                                <i class="fas fa-sign-out-alt"></i> Logout
+                            </a>
                         </li>
                     {% else %}
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('login') }}">Login</a>
+                            <a class="nav-link" href="{{ url_for('login') }}">
+                                <i class="fas fa-sign-in-alt"></i> Login
+                            </a>
                         </li>
                     {% endif %}
                 </ul>
@@ -64,37 +76,52 @@
     </div>
 
     <!-- Main Content -->
-    <main class="container my-4">
-        {% block content %}{% endblock %}
+    <main>
+        <div class="container">
+            {% block content %}{% endblock %}
+        </div>
     </main>
 
     <!-- Footer -->
-    <footer class="bg-dark text-white py-4 mt-5">
+    <footer>
         <div class="container">
             <div class="row">
-                <div class="col-md-6">
-                    <h5><i class="fab fa-bitcoin text-warning"></i> BTCBuzzBot</h5>
-                    <p>A Twitter bot that posts real-time Bitcoin price updates combined with motivational quotes or humorous content.</p>
+                <div class="col-md-5">
+                    <h5><i class="fab fa-bitcoin bitcoin-icon"></i> BTCBuzzBot</h5>
+                    <p class="text-light">A Twitter bot that posts real-time Bitcoin price updates combined with motivational quotes or humorous content.</p>
+                    <div class="d-flex gap-3 mt-3">
+                        <a href="https://twitter.com/btcbuzzbot" target="_blank"><i class="fab fa-twitter fa-lg"></i></a>
+                        <a href="https://github.com/yourusername/btcbuzzbot" target="_blank"><i class="fab fa-github fa-lg"></i></a>
+                        <a href="mailto:info@example.com"><i class="fas fa-envelope fa-lg"></i></a>
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <h5>Links</h5>
+                <div class="col-md-3 offset-md-1">
+                    <h5>Navigation</h5>
                     <ul class="list-unstyled">
-                        <li><a href="{{ url_for('home') }}" class="text-white">Home</a></li>
-                        <li><a href="{{ url_for('posts') }}" class="text-white">Tweet History</a></li>
-                        <li><a href="https://github.com/yourusername/btcbuzzbot" class="text-white">GitHub</a></li>
+                        <li class="mb-2"><a href="{{ url_for('home') }}"><i class="fas fa-angle-right me-1"></i> Home</a></li>
+                        <li class="mb-2"><a href="{{ url_for('posts') }}"><i class="fas fa-angle-right me-1"></i> Tweet History</a></li>
+                        <li class="mb-2"><a href="https://github.com/yourusername/btcbuzzbot"><i class="fas fa-angle-right me-1"></i> GitHub</a></li>
                     </ul>
                 </div>
                 <div class="col-md-3">
-                    <h5>Contact</h5>
-                    <ul class="list-unstyled">
-                        <li><a href="https://twitter.com/btcbuzzbot" class="text-white"><i class="fab fa-twitter"></i> @btcbuzzbot</a></li>
-                        <li><a href="mailto:info@example.com" class="text-white"><i class="fas fa-envelope"></i> Email</a></li>
-                    </ul>
+                    <h5>Status</h5>
+                    <div class="mb-2">
+                        <span class="health-indicator health-good"></span>
+                        <span>API: Online</span>
+                    </div>
+                    <div class="mb-2">
+                        <span class="health-indicator health-good"></span>
+                        <span>Twitter: Connected</span>
+                    </div>
+                    <div class="mb-2">
+                        <span class="health-indicator health-good"></span>
+                        <span>Database: Operational</span>
+                    </div>
                 </div>
             </div>
             <hr>
             <div class="text-center">
-                <p>&copy; 2025 BTCBuzzBot. All rights reserved.</p>
+                <p class="text-light mb-0">&copy; 2025 BTCBuzzBot. All rights reserved.</p>
             </div>
         </div>
     </footer>

@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import datetime
+import requests
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -199,6 +200,47 @@ def get_price_history(days=7):
             (timestamp,)
         ).fetchall()
         return [dict(price) for price in prices]
+
+def fetch_bitcoin_price():
+    """Fetch current Bitcoin price from CoinGecko API"""
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price"
+        params = {
+            "ids": "bitcoin",
+            "vs_currencies": "usd",
+            "include_24hr_change": "true"
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        if response.status_code == 200 and "bitcoin" in data:
+            price = data["bitcoin"]["usd"]
+            price_change = data["bitcoin"].get("usd_24h_change", 0)
+            
+            # Store in database
+            with get_db_connection() as conn:
+                conn.execute(
+                    'INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)',
+                    (datetime.datetime.utcnow().isoformat(), price, 'USD')
+                )
+                conn.commit()
+                
+            return {
+                "success": True,
+                "price": price,
+                "price_change": price_change
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to fetch Bitcoin price from CoinGecko"
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 def get_basic_stats():
     """Get basic statistics about the bot"""
@@ -480,6 +522,54 @@ def api_stats():
                 'stats': stats,
                 'price_history': price_history
             }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+
+@app.route('/api/price/refresh', methods=['GET'])
+@limiter.limit("10 per minute")
+def refresh_price():
+    """API endpoint to refresh Bitcoin price"""
+    try:
+        result = fetch_bitcoin_price()
+        
+        if result["success"]:
+            return jsonify({
+                'success': True,
+                'price': f"${result['price']:,.2f}",
+                'change': f"{result['price_change']:.2f}%"
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result["error"]
+            }), 400
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+
+@app.route('/api/price/history', methods=['GET'])
+@limiter.limit("20 per minute")
+def price_history_api():
+    """API endpoint to get price history"""
+    try:
+        days = min(int(request.args.get('days', 7)), 30)  # Limit max days
+        price_data = get_price_history(days=days)
+        
+        # Format for chart.js
+        prices = [{
+            'timestamp': item['timestamp'],
+            'price': item['price']
+        } for item in price_data]
+        
+        return jsonify({
+            'success': True,
+            'prices': prices
         })
     except Exception as e:
         return jsonify({

@@ -2,104 +2,113 @@
 
 {% block title %}{{ title }}{% endblock %}
 
-{% block head %}
-<style>
-    .tweet-card {
-        border-left: 4px solid #1da1f2;
-        margin-bottom: 15px;
-    }
-    .tweet-content {
-        white-space: pre-line;
-    }
-    .filter-form {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 20px;
-    }
-</style>
-{% endblock %}
-
 {% block content %}
-<div class="row">
-    <div class="col-md-12 mb-4">
-        <h1 class="mb-4">Tweet History</h1>
-        
-        <!-- Filter Form -->
-        <div class="filter-form">
-            <form method="get" action="{{ url_for('posts') }}" class="row g-3">
-                <div class="col-md-3">
-                    <label for="date_from" class="form-label">From Date</label>
-                    <input type="date" class="form-control" id="date_from" name="date_from" value="{{ date_from }}">
-                </div>
-                <div class="col-md-3">
-                    <label for="date_to" class="form-label">To Date</label>
-                    <input type="date" class="form-control" id="date_to" name="date_to" value="{{ date_to }}">
-                </div>
-                <div class="col-md-3">
-                    <label for="content_type" class="form-label">Content Type</label>
-                    <select class="form-control" id="content_type" name="content_type">
-                        <option value="" {% if not content_type %}selected{% endif %}>All</option>
-                        <option value="quote" {% if content_type == 'quote' %}selected{% endif %}>Quotes</option>
-                        <option value="joke" {% if content_type == 'joke' %}selected{% endif %}>Jokes</option>
-                    </select>
-                </div>
-                <div class="col-md-3 d-flex align-items-end">
-                    <button type="submit" class="btn btn-primary me-2">Filter</button>
-                    <a href="{{ url_for('posts') }}" class="btn btn-outline-secondary">Reset</a>
-                </div>
-            </form>
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card hero-card">
+            <div class="card-body p-4">
+                <h1 class="mb-3"><i class="fas fa-history me-2"></i> Tweet History</h1>
+                <p class="lead">Browse all tweets posted by BTCBuzzBot with filtering options.</p>
+            </div>
         </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <!-- Filter Form -->
+        <div class="card">
+            <div class="card-header bg-white">
+                <h3 class="mb-0"><i class="fas fa-filter me-2 bitcoin-icon"></i> Filter Tweets</h3>
+            </div>
+            <div class="card-body">
+                <form method="get" action="{{ url_for('posts') }}" class="row g-3">
+                    <div class="col-md-3">
+                        <label for="date_from" class="form-label">From Date</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-calendar"></i></span>
+                            <input type="date" class="form-control" id="date_from" name="date_from" value="{{ date_from }}">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="date_to" class="form-label">To Date</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-calendar"></i></span>
+                            <input type="date" class="form-control" id="date_to" name="date_to" value="{{ date_to }}">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="content_type" class="form-label">Content Type</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-tag"></i></span>
+                            <select class="form-select" id="content_type" name="content_type">
+                                <option value="" {% if not content_type %}selected{% endif %}>All</option>
+                                <option value="quote" {% if content_type == 'quote' %}selected{% endif %}>Quotes</option>
+                                <option value="joke" {% if content_type == 'joke' %}selected{% endif %}>Jokes</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary me-2">
+                            <i class="fas fa-search me-1"></i> Filter
+                        </button>
+                        <a href="{{ url_for('posts') }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-undo me-1"></i> Reset
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
         
-        <!-- Tweet List -->
+<!-- Tweet List -->
+<div class="row">
+    <div class="col-12">
         {% if posts %}
             <div class="card">
-                <div class="card-header bg-primary text-white">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><i class="fab fa-twitter"></i> Tweets</h5>
-                        <span class="badge bg-light text-dark">Total: {{ total }}</span>
-                    </div>
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h3 class="mb-0"><i class="fab fa-twitter me-2 bitcoin-icon"></i> Tweets</h3>
+                    <span class="badge bg-primary px-3 py-2">Total: {{ total }}</span>
                 </div>
                 <div class="card-body">
-                    {% for post in posts %}
-                        <div class="card tweet-card">
-                            <div class="card-body">
-                                <div class="d-flex justify-content-between">
-                                    <h5 class="card-title">
-                                        <i class="fab fa-bitcoin text-warning"></i> Bitcoin Update
-                                    </h5>
-                                    <small class="text-muted">{{ post.timestamp }}</small>
-                                </div>
-                                <p class="card-text tweet-content">{{ post.tweet }}</p>
-                                <div class="d-flex justify-content-between align-items-center mt-3">
-                                    <div>
+                    <div class="row">
+                        {% for post in posts %}
+                            <div class="col-md-6 mb-4">
+                                <div class="tweet-card">
+                                    <div class="tweet-header">
+                                        <div class="tweet-avatar">
+                                            <img src="{{ url_for('static', filename='img/favicon.png') }}" alt="BTCBuzzBot" class="img-fluid rounded-circle">
+                                        </div>
+                                        <div class="tweet-info">
+                                            <h5 class="mb-0">BTCBuzzBot</h5>
+                                            <div class="text-muted small">{{ post.timestamp }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="tweet-content">
+                                        {{ post.tweet }}
+                                    </div>
+                                    <div class="tweet-actions">
+                                        <span><i class="fas fa-heart text-danger"></i> {{ post.likes }}</span>
+                                        <span><i class="fas fa-retweet text-success"></i> {{ post.retweets }}</span>
                                         <span class="badge {% if post.content_type == 'quote' %}bg-success{% else %}bg-info{% endif %}">
                                             {{ post.content_type }}
                                         </span>
                                         <span class="badge bg-primary ms-2">
                                             ${{ "{:,.2f}".format(post.price) }}
                                         </span>
-                                        <span class="badge {% if post.price_change >= 0 %}bg-success{% else %}bg-danger{% endif %} ms-2">
-                                            {{ "{:+.2f}".format(post.price_change) }}%
-                                        </span>
                                     </div>
-                                    <div>
-                                        <span class="me-3">
-                                            <i class="fas fa-heart text-danger"></i> {{ post.likes }}
-                                        </span>
-                                        <span>
-                                            <i class="fas fa-retweet text-success"></i> {{ post.retweets }}
-                                        </span>
-                                    </div>
+                                    {% if post.tweet_id %}
+                                        <div class="p-3 border-top">
+                                            <a href="https://twitter.com/btcbuzzbot/status/{{ post.tweet_id }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                <i class="fab fa-twitter me-1"></i> View on Twitter
+                                            </a>
+                                        </div>
+                                    {% endif %}
                                 </div>
                             </div>
-                            <div class="card-footer bg-light">
-                                <a href="https://twitter.com/btcbuzzbot/status/{{ post.tweet_id }}" target="_blank" class="btn btn-sm btn-outline-primary">
-                                    <i class="fab fa-twitter"></i> View on Twitter
-                                </a>
-                            </div>
-                        </div>
-                    {% endfor %}
+                        {% endfor %}
+                    </div>
                     
                     <!-- Pagination -->
                     {% if total_pages > 1 %}
@@ -129,7 +138,7 @@
             </div>
         {% else %}
             <div class="alert alert-info">
-                <i class="fas fa-info-circle"></i> No tweets found matching your criteria.
+                <i class="fas fa-info-circle me-2"></i> No tweets found matching your criteria.
             </div>
         {% endif %}
     </div>

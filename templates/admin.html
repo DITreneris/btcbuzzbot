@@ -23,62 +23,80 @@
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col-md-12">
-        <h1 class="mb-4">Bot Administration</h1>
+    <div class="col-12">
+        <div class="card hero-card">
+            <div class="card-body p-4">
+                <h1 class="mb-3"><i class="fas fa-cog me-2"></i> Administration Panel</h1>
+                <p class="lead">Manage and monitor your BTCBuzzBot from this control center.</p>
+            </div>
+        </div>
+    </div>
+</div>
         
-        <!-- Status and Control Panel -->
-        <div class="card mb-4">
-            <div class="card-header bg-dark text-white">
-                <h5 class="mb-0"><i class="fas fa-tachometer-alt"></i> Bot Status & Control</h5>
+<!-- Status and Control Panel -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-white">
+                <h3 class="mb-0"><i class="fas fa-tachometer-alt me-2 bitcoin-icon"></i> Bot Status & Control</h3>
             </div>
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h4>Current Status</h4>
-                        <div class="d-flex align-items-center mb-3">
-                            <span class="status-badge badge {% if bot_status.status == 'Running' %}bg-success{% else %}bg-danger{% endif %} me-3">
-                                {{ bot_status.status }}
-                            </span>
-                            <span class="text-muted">Last updated: {{ bot_status.timestamp }}</span>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <h6>Next scheduled run:</h6>
-                            <p>{% if bot_status.next_scheduled_run %}{{ bot_status.next_scheduled_run }}{% else %}Not scheduled{% endif %}</p>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <h6>Status message:</h6>
-                            <p>{{ bot_status.message }}</p>
+                        <h4 class="mb-3">Current Status</h4>
+                        <div class="p-4 bg-light rounded mb-3">
+                            <div class="d-flex align-items-center mb-3">
+                                <div class="d-flex align-items-center me-3">
+                                    <span class="health-indicator {% if bot_status.status == 'Running' %}health-good{% else %}health-error{% endif %}"></span>
+                                    <span class="fw-bold">{{ bot_status.status }}</span>
+                                </div>
+                                <span class="text-muted">
+                                    <i class="far fa-clock me-1"></i> {{ bot_status.timestamp }}
+                                </span>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <h6><i class="fas fa-calendar-alt me-2 text-primary"></i> Next scheduled run:</h6>
+                                <p>{% if bot_status.next_scheduled_run %}{{ bot_status.next_scheduled_run }}{% else %}Not scheduled{% endif %}</p>
+                            </div>
+                            
+                            <div>
+                                <h6><i class="fas fa-comment-alt me-2 text-primary"></i> Status message:</h6>
+                                <p class="mb-0">{{ bot_status.message }}</p>
+                            </div>
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <h4>Control Panel</h4>
-                        <div class="d-flex mb-3">
-                            <form action="{{ url_for('control_bot', action='start') }}" method="post" class="me-2">
-                                <button type="submit" class="btn btn-success {% if bot_status.status == 'Running' %}disabled{% endif %}">
-                                    <i class="fas fa-play"></i> Start Bot
-                                </button>
-                            </form>
-                            <form action="{{ url_for('control_bot', action='stop') }}" method="post" class="me-2">
-                                <button type="submit" class="btn btn-danger {% if bot_status.status != 'Running' %}disabled{% endif %}">
-                                    <i class="fas fa-stop"></i> Stop Bot
-                                </button>
-                            </form>
-                            <form action="{{ url_for('control_bot', action='tweet_now') }}" method="post">
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="fas fa-paper-plane"></i> Post Now
-                                </button>
-                            </form>
+                        <h4 class="mb-3">Control Panel</h4>
+                        <div class="p-4 bg-light rounded mb-3">
+                            <div class="d-grid gap-2 d-md-flex mb-4">
+                                <form action="{{ url_for('control_bot', action='start') }}" method="post">
+                                    <button type="submit" class="btn btn-success {% if bot_status.status == 'Running' %}disabled{% endif %}">
+                                        <i class="fas fa-play me-2"></i> Start Bot
+                                    </button>
+                                </form>
+                                <form action="{{ url_for('control_bot', action='stop') }}" method="post">
+                                    <button type="submit" class="btn btn-danger {% if bot_status.status != 'Running' %}disabled{% endif %}">
+                                        <i class="fas fa-stop me-2"></i> Stop Bot
+                                    </button>
+                                </form>
+                                <form action="{{ url_for('control_bot', action='tweet_now') }}" method="post">
+                                    <button type="submit" class="btn btn-accent">
+                                        <i class="fas fa-paper-plane me-2"></i> Post Now
+                                    </button>
+                                </form>
+                            </div>
+                            
+                            <h6><i class="fas fa-clock me-2 text-primary"></i> Scheduled Post Times:</h6>
+                            <div class="d-flex flex-wrap">
+                                {% for time in schedule.post_times %}
+                                    <span class="badge bg-info me-2 mb-2 px-3 py-2">{{ time }}</span>
+                                {% endfor %}
+                            </div>
+                            <small class="text-muted">
+                                <i class="fas fa-globe me-1"></i> Timezone: {{ schedule.timezone }}
+                            </small>
                         </div>
-                        
-                        <h6>Scheduled Post Times:</h6>
-                        <div class="d-flex flex-wrap">
-                            {% for time in schedule.post_times %}
-                                <span class="badge bg-info me-2 mb-2">{{ time }}</span>
-                            {% endfor %}
-                        </div>
-                        <small class="text-muted">Timezone: {{ schedule.timezone }}</small>
                     </div>
                 </div>
             </div>
@@ -86,38 +104,45 @@
     </div>
 </div>
 
-<div class="row">
+<div class="row mb-4">
     <!-- Bitcoin Price Chart -->
-    <div class="col-md-8 mb-4">
+    <div class="col-lg-8 mb-4">
         <div class="card h-100">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="fas fa-chart-line"></i> Bitcoin Price History (7 Days)</h5>
+            <div class="card-header bg-white">
+                <h3 class="mb-0"><i class="fas fa-chart-line me-2 bitcoin-icon"></i> Bitcoin Price History</h3>
             </div>
-            <div class="card-body">
-                <canvas id="priceChart" width="400" height="200"></canvas>
+            <div class="card-body px-0 pt-0 pb-2">
+                <div class="chart-container">
+                    <canvas id="priceChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
     
     <!-- Error Logs -->
-    <div class="col-md-4 mb-4">
+    <div class="col-lg-4 mb-4">
         <div class="card h-100">
-            <div class="card-header bg-danger text-white">
-                <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Recent Errors</h5>
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h3 class="mb-0"><i class="fas fa-exclamation-triangle me-2 text-danger"></i> Recent Errors</h3>
+                <span class="badge bg-danger px-3 py-2">{{ errors|length }}</span>
             </div>
             <div class="card-body p-0">
                 {% if errors %}
                     <div class="list-group list-group-flush">
                         {% for error in errors %}
-                            <div class="log-entry error-log">
-                                <small class="text-muted d-block">{{ error.timestamp }}</small>
+                            <div class="p-3 border-bottom">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="badge bg-danger">ERROR</span>
+                                    <small class="text-muted">{{ error.timestamp }}</small>
+                                </div>
                                 <div class="mt-1">{{ error.message }}</div>
                             </div>
                         {% endfor %}
                     </div>
                 {% else %}
-                    <div class="p-3 text-center">
-                        <p class="text-success mb-0"><i class="fas fa-check-circle"></i> No recent errors</p>
+                    <div class="p-4 text-center">
+                        <i class="fas fa-check-circle text-success fa-3x mb-3"></i>
+                        <p class="mb-0">No recent errors detected</p>
                     </div>
                 {% endif %}
             </div>
@@ -125,18 +150,21 @@
     </div>
 </div>
 
+<!-- Recent Posts -->
 <div class="row">
-    <!-- Recent Posts -->
-    <div class="col-md-12 mb-4">
+    <div class="col-12">
         <div class="card">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><i class="fab fa-twitter"></i> Recent Tweets</h5>
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h3 class="mb-0"><i class="fab fa-twitter me-2 bitcoin-icon"></i> Recent Tweets</h3>
+                <a href="{{ url_for('posts') }}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-list me-1"></i> View All
+                </a>
             </div>
             <div class="card-body">
                 {% if recent_posts %}
                     <div class="table-responsive">
                         <table class="table table-hover">
-                            <thead>
+                            <thead class="table-light">
                                 <tr>
                                     <th>Time</th>
                                     <th>Tweet</th>
@@ -148,13 +176,21 @@
                             <tbody>
                                 {% for post in recent_posts %}
                                     <tr>
-                                        <td>{{ post.timestamp }}</td>
+                                        <td class="text-nowrap">{{ post.timestamp }}</td>
                                         <td>{{ post.tweet }}</td>
-                                        <td><span class="badge {% if post.content_type == 'quote' %}bg-success{% else %}bg-info{% endif %}">{{ post.content_type }}</span></td>
-                                        <td>${{ "{:,.2f}".format(post.price) }}</td>
                                         <td>
-                                            <i class="fas fa-heart text-danger"></i> {{ post.likes }}
-                                            <i class="fas fa-retweet text-success ms-2"></i> {{ post.retweets }}
+                                            <span class="badge {% if post.content_type == 'quote' %}bg-success{% else %}bg-info{% endif %} px-2 py-1">
+                                                {{ post.content_type }}
+                                            </span>
+                                        </td>
+                                        <td class="text-nowrap">${{ "{:,.2f}".format(post.price) }}</td>
+                                        <td class="text-nowrap">
+                                            <span class="me-3">
+                                                <i class="fas fa-heart text-danger"></i> {{ post.likes }}
+                                            </span>
+                                            <span>
+                                                <i class="fas fa-retweet text-success"></i> {{ post.retweets }}
+                                            </span>
                                         </td>
                                     </tr>
                                 {% endfor %}
@@ -162,7 +198,9 @@
                         </table>
                     </div>
                 {% else %}
-                    <div class="alert alert-info">No tweets posted yet.</div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i> No tweets posted yet.
+                    </div>
                 {% endif %}
             </div>
         </div>
@@ -195,10 +233,10 @@
                 datasets: [{
                     label: 'Bitcoin Price (USD)',
                     data: prices,
-                    backgroundColor: 'rgba(255, 159, 64, 0.2)',
-                    borderColor: 'rgba(255, 159, 64, 1)',
+                    backgroundColor: 'rgba(249, 185, 23, 0.2)',
+                    borderColor: '#F9B917',
                     borderWidth: 2,
-                    pointBackgroundColor: 'rgba(255, 159, 64, 1)',
+                    pointBackgroundColor: '#F9B917',
                     tension: 0.1
                 }]
             },
@@ -219,7 +257,7 @@
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                return 'Price: $' + context.raw.toLocaleString();
+                                return '$' + context.raw.toLocaleString();
                             }
                         }
                     }

@@ -3,44 +3,67 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
-<div class="row">
-    <!-- Hero section -->
-    <div class="col-md-12 mb-4">
-        <div class="card bg-dark text-white">
-            <div class="card-body p-5">
-                <h1 class="display-4"><i class="fab fa-bitcoin text-warning"></i> BTCBuzzBot</h1>
-                <p class="lead">A Twitter bot that posts real-time Bitcoin price updates combined with motivational quotes and jokes to engage the crypto community.</p>
-                <hr class="my-4 bg-light">
-                <p>Get the latest Bitcoin prices, stay motivated, and have a laugh with our automated Twitter updates.</p>
-                <a href="https://twitter.com/btcbuzzbot" class="btn btn-primary" target="_blank">
-                    <i class="fab fa-twitter"></i> Follow @btcbuzzbot
-                </a>
-                <a href="{{ url_for('posts') }}" class="btn btn-outline-light">
-                    <i class="fas fa-history"></i> View Tweet History
-                </a>
+<!-- Hero section -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card hero-card">
+            <div class="card-body p-4 p-md-5">
+                <h1 class="display-4 mb-3"><i class="fab fa-bitcoin bitcoin-icon"></i> BTCBuzzBot</h1>
+                <p class="lead mb-4">A Twitter bot that posts real-time Bitcoin price updates combined with motivational quotes and jokes to engage the crypto community.</p>
+                <div class="d-flex flex-wrap gap-2 mt-4">
+                    <a href="https://twitter.com/btcbuzzbot" class="btn btn-accent" target="_blank">
+                        <i class="fab fa-twitter me-2"></i> Follow @btcbuzzbot
+                    </a>
+                    <a href="{{ url_for('posts') }}" class="btn btn-outline-light">
+                        <i class="fas fa-history me-2"></i> View Tweet History
+                    </a>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<div class="row">
+<!-- Price and Stats Section -->
+<div class="row mb-4">
     <!-- Current Bitcoin Price -->
     <div class="col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="fas fa-chart-line"></i> Current Bitcoin Price</h5>
+        <div class="card h-100 price-card">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h3 class="mb-0"><i class="fas fa-chart-line me-2 bitcoin-icon"></i> Current Bitcoin Price</h3>
+                <button id="refresh-price" class="btn btn-sm btn-outline-accent" data-bs-toggle="tooltip" title="Refresh price data">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
             </div>
             <div class="card-body text-center">
                 {% if stats.latest_price %}
-                    <h2 class="display-4 mb-3">${{ "{:,.2f}".format(stats.latest_price.price) }}</h2>
-                    <p class="text-muted">Last updated: {{ stats.latest_price.timestamp }}</p>
+                    <h2 class="display-4 mb-2" id="current-price">${{ "{:,.2f}".format(stats.latest_price.price) }}</h2>
+                    {% if stats.price_change %}
+                        <div class="mb-3">
+                            <span id="price-change" class="{% if stats.price_change > 0 %}price-up{% elif stats.price_change < 0 %}price-down{% else %}price-stable{% endif %}">
+                                <i class="fas {% if stats.price_change > 0 %}fa-arrow-up{% elif stats.price_change < 0 %}fa-arrow-down{% else %}fa-minus{% endif %} me-1"></i>
+                                {{ "{:+.2f}%".format(stats.price_change) }}
+                            </span>
+                            <small class="text-muted ms-2">(24h)</small>
+                        </div>
+                    {% endif %}
+                    <p class="text-muted">
+                        <i class="far fa-clock me-1"></i> 
+                        Last updated: {{ stats.latest_price.timestamp }}
+                    </p>
                 {% else %}
-                    <h2 class="display-4 mb-3">$--,---.--</h2>
-                    <p class="text-muted">Price data not available</p>
+                    <h2 class="display-4 mb-2" id="current-price">$--,---.--</h2>
+                    <div class="mb-3">
+                        <span id="price-change" class="price-stable">0.00%</span>
+                        <small class="text-muted ms-2">(24h)</small>
+                    </div>
+                    <p class="text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Price data not available
+                    </p>
                 {% endif %}
             </div>
-            <div class="card-footer">
-                <small class="text-muted">Source: CoinGecko API</small>
+            <div class="card-footer text-end">
+                <small class="text-muted">Source: <i class="fas fa-external-link-alt me-1"></i> CoinGecko API</small>
             </div>
         </div>
     </div>
@@ -48,34 +71,57 @@
     <!-- Statistics -->
     <div class="col-md-6 mb-4">
         <div class="card h-100">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0"><i class="fas fa-chart-pie"></i> Bot Statistics</h5>
+            <div class="card-header bg-white">
+                <h3 class="mb-0"><i class="fas fa-chart-pie me-2 bitcoin-icon"></i> Bot Statistics</h3>
             </div>
             <div class="card-body">
-                <div class="row text-center">
+                <div class="row g-3">
                     <div class="col-4">
-                        <h4>{{ stats.total_posts }}</h4>
-                        <p>Total Tweets</p>
+                        <div class="stat-card">
+                            <div class="stat-number">{{ stats.total_posts }}</div>
+                            <div class="stat-label">Total Tweets</div>
+                        </div>
                     </div>
                     <div class="col-4">
-                        <h4>{{ stats.total_quotes }}</h4>
-                        <p>Quotes</p>
+                        <div class="stat-card">
+                            <div class="stat-number">{{ stats.total_quotes }}</div>
+                            <div class="stat-label">Quotes</div>
+                        </div>
                     </div>
                     <div class="col-4">
-                        <h4>{{ stats.total_jokes }}</h4>
-                        <p>Jokes</p>
+                        <div class="stat-card">
+                            <div class="stat-number">{{ stats.total_jokes }}</div>
+                            <div class="stat-label">Jokes</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <div class="stat-number">{{ stats.avg_likes }}</div>
+                            <div class="stat-label">Avg. Likes</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <div class="stat-number">{{ stats.avg_retweets }}</div>
+                            <div class="stat-label">Avg. Retweets</div>
+                        </div>
                     </div>
                 </div>
-                <hr>
-                <div class="row text-center">
-                    <div class="col-6">
-                        <h4>{{ stats.avg_likes }}</h4>
-                        <p>Avg. Likes</p>
-                    </div>
-                    <div class="col-6">
-                        <h4>{{ stats.avg_retweets }}</h4>
-                        <p>Avg. Retweets</p>
-                    </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bitcoin Price History Chart -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-white">
+                <h3 class="mb-0"><i class="fas fa-chart-area me-2 bitcoin-icon"></i> Bitcoin Price History (7 Days)</h3>
+            </div>
+            <div class="card-body px-0 pt-0 pb-2">
+                <div class="chart-container">
+                    <canvas id="price-chart"></canvas>
                 </div>
             </div>
         </div>
@@ -83,36 +129,51 @@
 </div>
 
 <!-- Recent Tweets -->
-<div class="row">
-    <div class="col-md-12 mb-4">
+<div class="row mb-4">
+    <div class="col-12">
         <div class="card">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><i class="fab fa-twitter"></i> Recent Tweets</h5>
+            <div class="card-header bg-white">
+                <h3 class="mb-0"><i class="fab fa-twitter me-2 bitcoin-icon"></i> Recent Tweets</h3>
             </div>
             <div class="card-body">
                 {% if recent_posts %}
-                    <div class="list-group">
+                    <div class="row">
                         {% for post in recent_posts %}
-                            <div class="list-group-item list-group-item-action">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h5 class="mb-1">Bitcoin Update</h5>
-                                    <small class="text-muted">{{ post.timestamp }}</small>
+                            <div class="col-md-6 mb-3">
+                                <div class="tweet-card">
+                                    <div class="tweet-header">
+                                        <div class="tweet-avatar">
+                                            <img src="{{ url_for('static', filename='img/favicon.png') }}" alt="BTCBuzzBot" class="img-fluid rounded-circle">
+                                        </div>
+                                        <div class="tweet-info">
+                                            <h5 class="mb-0">BTCBuzzBot</h5>
+                                            <div class="text-muted small">{{ post.timestamp }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="tweet-content">
+                                        {{ post.content }}
+                                    </div>
+                                    <div class="tweet-actions">
+                                        <span><i class="fas fa-heart text-danger"></i> {{ post.likes or 0 }}</span>
+                                        <span><i class="fas fa-retweet text-success"></i> {{ post.retweets or 0 }}</span>
+                                        <span class="ms-auto">
+                                            <span class="badge bg-secondary">{{ post.content_type }}</span>
+                                        </span>
+                                    </div>
                                 </div>
-                                <p class="mb-1">{{ post.tweet }}</p>
-                                <small class="text-muted">
-                                    <i class="fas fa-heart text-danger"></i> {{ post.likes }}
-                                    <i class="fas fa-retweet text-success ms-3"></i> {{ post.retweets }}
-                                    <span class="badge bg-secondary ms-3">{{ post.content_type }}</span>
-                                </small>
                             </div>
                         {% endfor %}
                     </div>
+                    <div class="text-center mt-3">
+                        <a href="{{ url_for('posts') }}" class="btn btn-outline-accent">
+                            <i class="fas fa-history me-2"></i> View All Tweets
+                        </a>
+                    </div>
                 {% else %}
-                    <div class="alert alert-info">No tweets posted yet.</div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i> No tweets posted yet.
+                    </div>
                 {% endif %}
-            </div>
-            <div class="card-footer">
-                <a href="{{ url_for('posts') }}" class="btn btn-outline-primary">View All Tweets</a>
             </div>
         </div>
     </div>
@@ -120,31 +181,38 @@
 
 <!-- About Section -->
 <div class="row">
-    <div class="col-md-12">
+    <div class="col-12">
         <div class="card">
-            <div class="card-header bg-secondary text-white">
-                <h5 class="mb-0"><i class="fas fa-info-circle"></i> About BTCBuzzBot</h5>
+            <div class="card-header bg-white">
+                <h3 class="mb-0"><i class="fas fa-info-circle me-2 bitcoin-icon"></i> About BTCBuzzBot</h3>
             </div>
             <div class="card-body">
-                <h3>What is BTCBuzzBot?</h3>
-                <p>BTCBuzzBot is a Twitter bot that automatically posts Bitcoin price updates combined with motivational quotes or humorous content. The bot aims to engage the crypto community with informative and entertaining tweets.</p>
-                
-                <h3>Features</h3>
-                <ul>
-                    <li>Real-time BTC price fetching from CoinGecko</li>
-                    <li>Asynchronous operations for better performance</li>
-                    <li>SQLite database for local data persistence</li>
-                    <li>Scheduled Twitter posts (4 times daily)</li>
-                    <li>Quote and joke rotation system</li>
-                    <li>Error handling and fallback mechanisms</li>
-                </ul>
-                
-                <h3>Technical Details</h3>
-                <p>BTCBuzzBot is built with Python using asynchronous operations to efficiently handle API requests and database operations. It uses SQLite for data storage and the Twitter API v2 for posting updates.</p>
-                
-                <div class="alert alert-warning">
-                    <h4><i class="fas fa-exclamation-triangle"></i> Disclaimer</h4>
-                    <p class="mb-0">BTCBuzzBot is for informational purposes only. The content provided should not be construed as financial advice. Always do your own research before making investment decisions.</p>
+                <div class="row">
+                    <div class="col-md-7">
+                        <h4>What is BTCBuzzBot?</h4>
+                        <p>BTCBuzzBot is a Twitter bot that automatically posts Bitcoin price updates combined with motivational quotes or humorous content. The bot aims to engage the crypto community with informative and entertaining tweets.</p>
+                        
+                        <h4>Features</h4>
+                        <ul class="mb-4">
+                            <li>Real-time BTC price fetching from CoinGecko</li>
+                            <li>Asynchronous operations for better performance</li>
+                            <li>SQLite database for local data persistence</li>
+                            <li>Scheduled Twitter posts (4 times daily)</li>
+                            <li>Quote and joke rotation system</li>
+                            <li>Error handling and fallback mechanisms</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-5">
+                        <h4>Technical Details</h4>
+                        <p>BTCBuzzBot is built with Python using asynchronous operations to efficiently handle API requests and database operations. It uses SQLite for data storage and the Twitter API v2 for posting updates.</p>
+                        
+                        <div class="alert alert-warning">
+                            <h5 class="d-flex align-items-center">
+                                <i class="fas fa-exclamation-triangle me-2"></i> Disclaimer
+                            </h5>
+                            <p class="mb-0">BTCBuzzBot is for informational purposes only. The content provided should not be construed as financial advice. Always do your own research before making investment decisions.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
