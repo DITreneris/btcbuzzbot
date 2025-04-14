@@ -178,8 +178,19 @@ def get_bot_status():
                 'next_scheduled_run': None,
                 'message': 'Bot status not available'
             }
+        
+        # Check if we have a scheduled status
+        scheduled_status = conn.execute(
+            "SELECT * FROM bot_status WHERE status = 'Scheduled' ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+        
+        result = dict(status)
+        
+        # Add next_scheduled_run from the scheduled status if available
+        if scheduled_status and 'next_scheduled_run' in scheduled_status.keys() and scheduled_status['next_scheduled_run']:
+            result['next_scheduled_run'] = scheduled_status['next_scheduled_run']
             
-        return dict(status)
+        return result
 
 def get_recent_posts(limit=10):
     """Get recent posts from the database"""

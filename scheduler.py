@@ -265,6 +265,9 @@ def scheduler_loop():
     logger.info("Starting scheduler loop")
     log_status("Running", "Tweet scheduler started")
     
+    # Calculate and update the next scheduled run time
+    update_next_scheduled_run()
+    
     while scheduler_running:
         try:
             # Check if it's time to tweet
@@ -279,6 +282,9 @@ def scheduler_loop():
                     log_status("Running", f"Scheduled tweet for {scheduled_time} posted successfully")
                 else:
                     log_status("Error", f"Failed to post scheduled tweet for {scheduled_time}")
+                    
+                # Update the next scheduled run time after posting
+                update_next_scheduled_run()
                 
                 # Sleep for 5 minutes to avoid duplicate tweets in the same window
                 time.sleep(300)
@@ -293,6 +299,69 @@ def scheduler_loop():
             
             # Don't crash the loop
             time.sleep(60)
+
+def update_next_scheduled_run():
+    """Calculate and update the next scheduled run time in the database"""
+    try:
+        # Get the current schedule
+        schedule = get_configured_schedule()
+        
+        # Get current time
+        current_time = datetime.datetime.utcnow()
+        
+        # Find the next scheduled time
+        next_time = None
+        next_datetime = None
+        
+        # Convert scheduled times to datetime objects for today
+        scheduled_times = []
+        for time_str in schedule:
+            time_str = time_str.strip()
+            hour, minute = map(int, time_str.split(':'))
+            scheduled_dt = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+            # If this time is in the past, add a day
+            if scheduled_dt < current_time:
+                scheduled_dt += datetime.timedelta(days=1)
+                
+            scheduled_times.append((time_str, scheduled_dt))
+        
+        # Sort by datetime
+        scheduled_times.sort(key=lambda x: x[1])
+        
+        # Get the next scheduled time
+        if scheduled_times:
+            next_time, next_datetime = scheduled_times[0]
+            
+            # Update the database with the next scheduled run
+            logger.info(f"Next scheduled run: {next_time} ({next_datetime.isoformat()})")
+            
+            with get_db_connection() as conn:
+                # Check if bot_status table has next_scheduled_run column
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA table_info(bot_status)")
+                columns = [col[1] for col in cursor.fetchall()]
+                
+                if 'next_scheduled_run' not in columns:
+                    # Add the column if it doesn't exist
+                    conn.execute("ALTER TABLE bot_status ADD COLUMN next_scheduled_run TEXT")
+                    logger.info("Added next_scheduled_run column to bot_status table")
+                
+                # Insert a new status record with the next scheduled run
+                conn.execute(
+                    'INSERT INTO bot_status (timestamp, status, message, next_scheduled_run) VALUES (?, ?, ?, ?)',
+                    (current_time.isoformat(), "Scheduled", f"Next tweet scheduled for {next_time}", next_datetime.isoformat())
+                )
+                conn.commit()
+                
+            return next_datetime.isoformat()
+        else:
+            logger.warning("No scheduled times found")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error updating next scheduled run: {e}")
+        return None
 
 def start_scheduler():
     """Start the scheduler thread"""
@@ -311,6 +380,12 @@ def start_scheduler():
     scheduler_thread.start()
     
     logger.info("Scheduler started")
+    
+    # Explicitly update the next scheduled run
+    # This ensures the admin panel shows it immediately
+    next_run = update_next_scheduled_run()
+    log_status("Running", f"Bot started, next tweet scheduled for {next_run}")
+    
     return True
 
 def stop_scheduler():
@@ -393,7 +468,13 @@ def _update_config_internal(interval_minutes=None):
         
         # Update the schedule in the database
         logger.info(f"Updating schedule with interval of {interval_minutes} minutes")
-        return update_schedule(new_schedule)
+        success = update_schedule(new_schedule)
+        
+        # Update the next scheduled run time
+        if success:
+            update_next_scheduled_run()
+            
+        return success
     except Exception as e:
         logger.error(f"Error updating config: {e}")
         return False
