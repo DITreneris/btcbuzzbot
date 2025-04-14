@@ -526,8 +526,40 @@ def control_bot(action):
     elif action == 'tweet_now':
         message = 'Manual tweet triggered'
         status = 'Running'
-        # Here you would actually trigger the bot to post
-        # For now, just log it
+        # Trigger a manual tweet using our direct tweet handler
+        try:
+            import tweet_handler_direct
+            price_data = fetch_bitcoin_price()
+            if price_data["success"]:
+                # Get a random quote
+                quote = get_random_content()
+                if quote:
+                    # Post the tweet
+                    result = tweet_handler_direct.post_tweet(
+                        content=quote["text"],
+                        content_type=quote["type"],
+                        price=price_data["price"]
+                    )
+                    
+                    if result["success"]:
+                        message = f"Tweet posted successfully! Tweet ID: {result['tweet_id']}"
+                        # Log the tweet in the database
+                        with get_db_connection() as conn:
+                            conn.execute(
+                                'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                                (result['tweet_id'], result['tweet'], datetime.datetime.utcnow().isoformat(), 
+                                 price_data["price"], price_data["price_change"], quote["type"], 0, 0)
+                            )
+                            conn.commit()
+                    else:
+                        message = f"Failed to post tweet: {result.get('error', 'Unknown error')}"
+                else:
+                    message = "Failed to get random content"
+            else:
+                message = "Failed to fetch Bitcoin price"
+        except Exception as e:
+            message = f"Error posting tweet: {str(e)}"
+            status = 'Error'
     elif action == 'seed_prices':
         # Seed the database with 7 days of price data for testing
         seed_price_data()
