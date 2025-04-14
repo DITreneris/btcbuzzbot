@@ -5,68 +5,75 @@ Ultra-simple direct tweet script for BTCBuzzBot that uses only tweepy.
 import os
 import sys
 import time
+import traceback
 from datetime import datetime
 
-# Print status info
-print(f"Direct Tweet Script - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-print("=" * 50)
-
-# Try importing tweepy - required for this script
-try:
-    import tweepy
-    print("✅ Tweepy imported successfully!")
-except ImportError:
-    print("❌ Failed to import tweepy")
-    print("Installing tweepy...")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "tweepy"])
-    import tweepy
-    print("✅ Tweepy installed successfully!")
-
-# Twitter API credentials - manually specify them here if necessary
-API_KEY = os.environ.get('TWITTER_API_KEY', '')
-API_SECRET = os.environ.get('TWITTER_API_SECRET', '')
-ACCESS_TOKEN = os.environ.get('TWITTER_ACCESS_TOKEN', '')
-ACCESS_TOKEN_SECRET = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET', '')
-
-# Fetch current Bitcoin price from CoinGecko API
-def get_bitcoin_price():
-    try:
-        import requests
-        print("Fetching Bitcoin price from CoinGecko...")
-        response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
-        data = response.json()
-        price = data["bitcoin"]["usd"]
-        print(f"Current BTC price: ${price:,.2f}")
-        return price
-    except Exception as e:
-        print(f"Error fetching Bitcoin price: {e}")
-        # Return a sample price for testing
-        print("Using sample price: $84,500.00")
-        return 84500.00
-
-# Post the tweet
 def post_tweet():
-    # Verify Twitter credentials
-    if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET]):
-        print("❌ Missing Twitter API credentials")
-        print("Please set the following environment variables:")
-        print("TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET")
+    """Post a tweet directly using the Twitter API"""
+    print(f"---- Direct Tweet Script - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ----")
+    
+    # Try importing tweepy - required for this script
+    try:
+        import tweepy
+        print("✅ Tweepy imported successfully!")
+    except ImportError as e:
+        print(f"❌ Failed to import tweepy: {e}")
+        print("Make sure tweepy is installed: pip install tweepy")
         return False
     
+    # Try importing requests for price fetch
     try:
-        # Create tweepy client
-        client = tweepy.Client(
-            consumer_key=API_KEY,
-            consumer_secret=API_SECRET,
-            access_token=ACCESS_TOKEN,
-            access_token_secret=ACCESS_TOKEN_SECRET
-        )
+        import requests
+        print("✅ Requests imported successfully!")
+    except ImportError as e:
+        print(f"❌ Failed to import requests: {e}")
+        print("Will use sample price since requests module is unavailable")
         
-        # Get current Bitcoin price
-        btc_price = get_bitcoin_price()
+    # Twitter API credentials - from environment variables
+    try:
+        API_KEY = os.environ.get('TWITTER_API_KEY', '')
+        API_SECRET = os.environ.get('TWITTER_API_SECRET', '')
+        ACCESS_TOKEN = os.environ.get('TWITTER_ACCESS_TOKEN', '')
+        ACCESS_TOKEN_SECRET = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET', '')
         
-        # Create tweet content
+        # Print first and last few chars of credentials for debugging
+        print(f"API Key: {API_KEY[:3]}...{API_KEY[-3:] if len(API_KEY) > 6 else 'TOO SHORT'}")
+        print(f"API Secret: {API_SECRET[:3]}...{API_SECRET[-3:] if len(API_SECRET) > 6 else 'TOO SHORT'}")
+        print(f"Access Token: {ACCESS_TOKEN[:3]}...{ACCESS_TOKEN[-3:] if len(ACCESS_TOKEN) > 6 else 'TOO SHORT'}")
+        print(f"Access Token Secret: {ACCESS_TOKEN_SECRET[:3]}...{ACCESS_TOKEN_SECRET[-3:] if len(ACCESS_TOKEN_SECRET) > 6 else 'TOO SHORT'}")
+        
+        # Check if credentials are set
+        if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET]):
+            missing = []
+            if not API_KEY: missing.append("TWITTER_API_KEY")
+            if not API_SECRET: missing.append("TWITTER_API_SECRET")
+            if not ACCESS_TOKEN: missing.append("TWITTER_ACCESS_TOKEN")
+            if not ACCESS_TOKEN_SECRET: missing.append("TWITTER_ACCESS_TOKEN_SECRET")
+            
+            print(f"❌ Missing Twitter API credentials: {', '.join(missing)}")
+            print("Please set these environment variables on Heroku")
+            return False
+    except Exception as e:
+        print(f"❌ Error getting Twitter credentials: {e}")
+        return False
+    
+    # Fetch Bitcoin price
+    btc_price = 0
+    try:
+        print("Fetching Bitcoin price from CoinGecko...")
+        response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", 
+                              timeout=10)
+        data = response.json()
+        btc_price = data["bitcoin"]["usd"]
+        print(f"✅ Current BTC price: ${btc_price:,.2f}")
+    except Exception as e:
+        print(f"❌ Error fetching Bitcoin price: {e}")
+        # Use sample price
+        btc_price = 84500.00
+        print(f"Using sample price: ${btc_price:,.2f}")
+    
+    # Create tweet content
+    try:
         quotes = [
             "HODL to the moon! 🚀",
             "Buy the dip, enjoy the trip. 📈",
@@ -88,9 +95,22 @@ def post_tweet():
         timestamp = datetime.now().strftime('%H:%M:%S')
         tweet = f"BTC: ${btc_price:,.2f} {emoji}\n{quote}\n#Bitcoin #Crypto #{timestamp}"
         
-        print(f"\nPosting tweet: {tweet}")
+        print(f"Tweet content: {tweet}")
+    except Exception as e:
+        print(f"❌ Error creating tweet content: {e}")
+        return False
+    
+    # Post the tweet
+    try:
+        print("Creating Twitter API client...")
+        client = tweepy.Client(
+            consumer_key=API_KEY,
+            consumer_secret=API_SECRET,
+            access_token=ACCESS_TOKEN,
+            access_token_secret=ACCESS_TOKEN_SECRET
+        )
         
-        # Post the tweet
+        print("Posting tweet...")
         response = client.create_tweet(text=tweet)
         
         if response and hasattr(response, 'data') and 'id' in response.data:
@@ -99,13 +119,11 @@ def post_tweet():
             print(f"Tweet URL: https://twitter.com/i/web/status/{tweet_id}")
             return True
         else:
-            print("❌ Failed to post tweet - unexpected response")
-            print(f"Response: {response}")
+            print(f"❌ Failed to post tweet - unexpected response format: {response}")
             return False
             
     except Exception as e:
         print(f"❌ Error posting tweet: {e}")
-        import traceback
         traceback.print_exc()
         return False
 
@@ -114,6 +132,7 @@ if __name__ == "__main__":
     
     if success:
         print("\n✅ Tweet posted successfully!")
+        sys.exit(0)
     else:
         print("\n❌ Tweet posting failed!")
         sys.exit(1) 
