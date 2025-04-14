@@ -526,22 +526,43 @@ def control_bot(action):
     elif action == 'tweet_now':
         message = 'Manual tweet triggered'
         status = 'Running'
-        # Trigger a manual tweet using our direct tweet script
+        
+        # Try to import and use different tweet modules
         try:
-            # Use direct_tweet.py which doesn't rely on external functions
-            import direct_tweet
-            tweet_result = direct_tweet.post_tweet()
-            
-            if tweet_result:
-                message = "Tweet posted successfully!"
-                status = 'Running'
-            else:
-                message = "Failed to post tweet"
-                status = 'Error'
+            # First try the basic_tweet module which has better compatibility
+            try:
+                import basic_tweet
+                print("Using basic_tweet module")
+                if basic_tweet.post_tweet():
+                    message = "Tweet posted successfully using basic_tweet module!"
+                    status = 'Running'
+                else:
+                    # Try the direct_tweet as a fallback
+                    import direct_tweet
+                    print("Falling back to direct_tweet module")
+                    if direct_tweet.post_tweet():
+                        message = "Tweet posted successfully using direct_tweet module!"
+                        status = 'Running'
+                    else:
+                        message = "Failed to post tweet with both modules"
+                        status = 'Error'
+            except ImportError:
+                # If basic_tweet isn't available, try direct_tweet
+                import direct_tweet
+                print("Using direct_tweet module")
+                if direct_tweet.post_tweet():
+                    message = "Tweet posted successfully!"
+                    status = 'Running'
+                else:
+                    message = "Failed to post tweet"
+                    status = 'Error'
                 
         except Exception as e:
             message = f"Error posting tweet: {str(e)}"
             status = 'Error'
+            import traceback
+            traceback.print_exc()
+            
     elif action == 'seed_prices':
         # Seed the database with 7 days of price data for testing
         seed_price_data()
