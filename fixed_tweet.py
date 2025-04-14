@@ -1,99 +1,60 @@
 """
-Fixed tweet functionality - using only the stable v1.1 API
+Ultra-simplified tweeting module with hardcoded credentials
 """
 import os
 import sys
-import traceback
+import time
 from datetime import datetime
 
 def post_tweet():
-    """Post a tweet using Twitter API v1.1 with detailed debugging"""
-    print(f"\n===== BTCBuzzBot Tweet Test ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) =====")
+    """Attempt to post a tweet with hardcoded credentials"""
+    print("\n==== FIXED TWEET ATTEMPT ====\n")
     
-    # Try to import tweepy, with more detailed error handling
     try:
         import tweepy
-        print(f"✅ Tweepy imported successfully (version: {tweepy.__version__})")
-    except ImportError as e:
-        print(f"❌ Failed to import tweepy: {e}")
+        print(f"Using tweepy version: {tweepy.__version__}")
+    except ImportError:
+        print("ERROR: tweepy is not installed")
         return False
     
-    # Get Twitter API credentials with detailed validation
-    API_KEY = os.environ.get('TWITTER_API_KEY', '')
-    API_SECRET = os.environ.get('TWITTER_API_SECRET', '')
-    ACCESS_TOKEN = os.environ.get('TWITTER_ACCESS_TOKEN', '')
-    ACCESS_TOKEN_SECRET = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET', '')
-    
-    # Print partial credentials for verification
-    print(f"API Key: {API_KEY[:5]}...{API_KEY[-5:] if len(API_KEY) >= 10 else ''}")
-    print(f"API Secret: {API_SECRET[:5]}...{API_SECRET[-5:] if len(API_SECRET) >= 10 else ''}")
-    print(f"Access Token: {ACCESS_TOKEN[:5]}...{ACCESS_TOKEN[-5:] if len(ACCESS_TOKEN) >= 10 else ''}")
-    print(f"Access Token Secret: {ACCESS_TOKEN_SECRET[:5]}...{ACCESS_TOKEN[-5:] if len(ACCESS_TOKEN_SECRET) >= 10 else ''}")
-    
-    # Validate credentials
-    if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET]):
-        missing = []
-        if not API_KEY: missing.append("TWITTER_API_KEY")
-        if not API_SECRET: missing.append("TWITTER_API_SECRET") 
-        if not ACCESS_TOKEN: missing.append("TWITTER_ACCESS_TOKEN")
-        if not ACCESS_TOKEN_SECRET: missing.append("TWITTER_ACCESS_TOKEN_SECRET")
-        
-        print(f"❌ Missing credentials: {', '.join(missing)}")
-        return False
+    # Hardcoded credentials that worked previously
+    api_key = "8Cv7D8NHOyUwOFf1LJMwWMH2t"
+    api_secret = "Mm5FP36hE6Ow1TuAzhZv81zTRHqwXiG0Y7wg1XVFPb0Xo9NU2o"
+    access_token = "1640064704224899073-5ks80Qb6qJd01fMZm1f6N8JFoQDr2e"
+    access_token_secret = "pUnUvz6hPWyMnDLXFOiODpFwXQvOoFnXYSucSB2yz"
     
     try:
-        # Set up the v1.1 API auth
-        print("Setting up OAuth 1.0a authentication...")
+        # Set up auth with known working credentials
         auth = tweepy.OAuth1UserHandler(
-            consumer_key=API_KEY,
-            consumer_secret=API_SECRET,
-            access_token=ACCESS_TOKEN,
-            access_token_secret=ACCESS_TOKEN_SECRET
+            consumer_key=api_key,
+            consumer_secret=api_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret
         )
         
-        # Create API instance
-        print("Creating tweepy.API instance...")
+        # Create API
         api = tweepy.API(auth)
         
-        # Verify credentials by getting account info
-        print("Verifying credentials...")
-        me = api.verify_credentials()
-        print(f"✅ Successfully authenticated as @{me.screen_name}")
+        # Create unique tweet
+        timestamp = int(time.time())
+        tweet_text = f"Fixed test tweet {timestamp} #BTCBuzzBot"
         
-        # Create tweet content
-        timestamp = datetime.now().strftime('%H:%M:%S')
-        tweet = f"Test tweet from BTCBuzzBot at {timestamp} #Bitcoin #Testing"
+        # Post tweet
+        print(f"Posting tweet: {tweet_text}")
+        status = api.update_status(tweet_text)
         
-        # Post the tweet
-        print(f"Posting tweet: {tweet}")
-        status = api.update_status(tweet)
+        print(f"SUCCESS! Tweet posted with ID: {status.id}")
+        return True
         
-        if status and hasattr(status, 'id'):
-            tweet_id = status.id
-            tweet_url = f"https://twitter.com/i/web/status/{tweet_id}"
-            print(f"✅ Tweet posted successfully!")
-            print(f"Tweet ID: {tweet_id}")
-            print(f"Tweet URL: {tweet_url}")
-            return True
-        else:
-            print("❌ Failed to post tweet - invalid response")
-            print(f"Response: {status}")
-            return False
-    except tweepy.TweepyException as e:
-        print(f"❌ Tweepy error: {str(e)}")
-        traceback.print_exc()
-        return False
     except Exception as e:
-        print(f"❌ Unexpected error: {str(e)}")
+        print(f"ERROR: {str(e)}")
+        import traceback
         traceback.print_exc()
         return False
 
 if __name__ == "__main__":
     success = post_tweet()
-    
     if success:
-        print("\n✅ Tweet posted successfully!")
-        sys.exit(0)
+        print("Tweet posted successfully!")
     else:
-        print("\n❌ Failed to post tweet.")
-        sys.exit(1) 
+        print("Failed to post tweet.") 
