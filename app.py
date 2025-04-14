@@ -66,11 +66,15 @@ def init_db():
         # Check if admin user exists, if not create default
         admin = conn.execute('SELECT * FROM web_users WHERE username = ?', ('admin',)).fetchone()
         if not admin:
-            # Create default admin user with password 'changeme'
-            conn.execute(
-                'INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)',
-                ('admin', generate_password_hash('changeme'), True, datetime.datetime.utcnow().isoformat())
-            )
+            try:
+                # Create default admin user with password 'changeme'
+                conn.execute(
+                    'INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)',
+                    ('admin', generate_password_hash('changeme'), True, datetime.datetime.utcnow().isoformat())
+                )
+            except sqlite3.IntegrityError:
+                # If there's an integrity error (like the user already exists), just continue
+                pass
         
         conn.commit()
 
