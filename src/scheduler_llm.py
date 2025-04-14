@@ -23,14 +23,14 @@ logger = logging.getLogger('scheduler_llm')
 try:
     from src.llm_integration import initialize_ollama, ContentGenerator
     from src.prompt_templates import PromptManager
-    import src.tweet_handler as tweet_handler
+    from src.tweet_handler import post_tweet, get_tweet_handler
     from src.database import get_db_connection
 except ImportError:
     logger.warning("Running with mock imports - some functionality may be limited")
     try:
         from llm_integration import initialize_ollama, ContentGenerator
         from prompt_templates import PromptManager
-        import tweet_handler
+        from tweet_handler import post_tweet, get_tweet_handler
         from database import get_db_connection
     except ImportError:
         logger.error("Could not import required modules for LLM scheduler integration")
@@ -287,7 +287,7 @@ class LLMTweetGenerator:
                 return generated
                 
             # Post the tweet
-            tweet_result = tweet_handler.post_tweet(
+            tweet_result = post_tweet(
                 content=generated['content'],
                 content_type=generated['content_type'],
                 price=generated['price']
