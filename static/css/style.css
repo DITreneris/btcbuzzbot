@@ -112,6 +112,7 @@ main {
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   margin-bottom: var(--spacing-lg);
+  color: var(--text-light);
 }
 
 .card:hover {
@@ -135,10 +136,19 @@ main {
   padding: var(--spacing-lg);
 }
 
+.card-body p {
+  color: var(--text-light);
+}
+
+.card .text-muted {
+  color: var(--text-muted) !important;
+}
+
 .card-footer {
-  background-color: #fff;
-  border-top: 1px solid var(--secondary);
+  background-color: var(--primary-dark);
+  border-top: 1px solid var(--border-color);
   padding: var(--spacing-md) var(--spacing-lg);
+  color: var(--text-muted);
 }
 
 /* Header and Navigation */
@@ -532,5 +542,47 @@ footer a:hover {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
-} 
+}
+
+/* About section specific styles */
+.about-content h4 {
+  margin-top: 1.5rem;
+  color: var(--text-light);
+}
+
+.about-content p, 
+.about-content ul,
+.about-content li {
+  color: var(--text-light);
+}
+
+/* Fix warning alert text color */
+.alert-warning {
+  background-color: rgba(247, 147, 26, 0.15);
+  border-color: rgba(247, 147, 26, 0.3);
+  color: var(--text-light);
+}
+
+.alert-warning h5 {
+  color: var(--accent);
+}
+
+/* Improve contrast for information alerts */
+.alert-info {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--text-light);
+}
+
+/* Utility classes */
+.text-accent {
+  color: var(--accent) !important;
+}
+
+.text-light {
+  color: var(--text-light) !important;
+}
+
+.text-muted {
+  color: var(--text-muted) !important;
 } 

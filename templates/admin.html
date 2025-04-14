@@ -10,13 +10,18 @@
     }
     .log-entry {
         padding: 10px;
-        border-bottom: 1px solid #eee;
+        border-bottom: 1px solid var(--border-color);
     }
     .log-entry:last-child {
         border-bottom: none;
     }
     .error-log {
-        background-color: #fff8f8;
+        background-color: rgba(239, 68, 68, 0.1);
+    }
+    .bg-panel {
+        background-color: var(--primary-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
     }
 </style>
 {% endblock %}
@@ -37,18 +42,18 @@
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
-            <div class="card-header bg-white">
+            <div class="card-header">
                 <h3 class="mb-0"><i class="fas fa-tachometer-alt me-2 bitcoin-icon"></i> Bot Status & Control</h3>
             </div>
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <h4 class="mb-3">Current Status</h4>
-                        <div class="p-4 bg-light rounded mb-3">
+                        <h4 class="mb-3 text-light">Current Status</h4>
+                        <div class="p-4 bg-panel rounded mb-3">
                             <div class="d-flex align-items-center mb-3">
                                 <div class="d-flex align-items-center me-3">
                                     <span class="health-indicator {% if bot_status.status == 'Running' %}health-good{% else %}health-error{% endif %}"></span>
-                                    <span class="fw-bold">{{ bot_status.status }}</span>
+                                    <span class="fw-bold text-light">{{ bot_status.status }}</span>
                                 </div>
                                 <span class="text-muted">
                                     <i class="far fa-clock me-1"></i> {{ bot_status.timestamp }}
@@ -56,19 +61,19 @@
                             </div>
                             
                             <div class="mb-3">
-                                <h6><i class="fas fa-calendar-alt me-2 text-primary"></i> Next scheduled run:</h6>
-                                <p>{% if bot_status.next_scheduled_run %}{{ bot_status.next_scheduled_run }}{% else %}Not scheduled{% endif %}</p>
+                                <h6 class="text-accent"><i class="fas fa-calendar-alt me-2"></i> Next scheduled run:</h6>
+                                <p class="text-light">{% if bot_status.next_scheduled_run %}{{ bot_status.next_scheduled_run }}{% else %}Not scheduled{% endif %}</p>
                             </div>
                             
                             <div>
-                                <h6><i class="fas fa-comment-alt me-2 text-primary"></i> Status message:</h6>
-                                <p class="mb-0">{{ bot_status.message }}</p>
+                                <h6 class="text-accent"><i class="fas fa-comment-alt me-2"></i> Status message:</h6>
+                                <p class="mb-0 text-light">{{ bot_status.message }}</p>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <h4 class="mb-3">Control Panel</h4>
-                        <div class="p-4 bg-light rounded mb-3">
+                        <h4 class="mb-3 text-light">Control Panel</h4>
+                        <div class="p-4 bg-panel rounded mb-3">
                             <div class="d-grid gap-2 d-md-flex mb-4">
                                 <form action="{{ url_for('control_bot', action='start') }}" method="post">
                                     <button type="submit" class="btn btn-success {% if bot_status.status == 'Running' %}disabled{% endif %}">
@@ -87,7 +92,7 @@
                                 </form>
                             </div>
                             
-                            <h6><i class="fas fa-clock me-2 text-primary"></i> Scheduled Post Times:</h6>
+                            <h6 class="text-accent"><i class="fas fa-clock me-2"></i> Scheduled Post Times:</h6>
                             <div class="d-flex flex-wrap">
                                 {% for time in schedule.post_times %}
                                     <span class="badge bg-info me-2 mb-2 px-3 py-2">{{ time }}</span>
@@ -157,7 +162,7 @@
     <!-- Bitcoin Price Chart -->
     <div class="col-lg-8 mb-4">
         <div class="card h-100">
-            <div class="card-header bg-white">
+            <div class="card-header">
                 <h3 class="mb-0"><i class="fas fa-chart-line me-2 bitcoin-icon"></i> Bitcoin Price History</h3>
             </div>
             <div class="card-body px-0 pt-0 pb-2">
@@ -171,7 +176,7 @@
     <!-- Error Logs -->
     <div class="col-lg-4 mb-4">
         <div class="card h-100">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 <h3 class="mb-0"><i class="fas fa-exclamation-triangle me-2 text-danger"></i> Recent Errors</h3>
                 <span class="badge bg-danger px-3 py-2">{{ errors|length }}</span>
             </div>
@@ -184,14 +189,14 @@
                                     <span class="badge bg-danger">ERROR</span>
                                     <small class="text-muted">{{ error.timestamp }}</small>
                                 </div>
-                                <div class="mt-1">{{ error.message }}</div>
+                                <div class="mt-1 text-light">{{ error.message }}</div>
                             </div>
                         {% endfor %}
                     </div>
                 {% else %}
                     <div class="p-4 text-center">
                         <i class="fas fa-check-circle text-success fa-3x mb-3"></i>
-                        <p class="mb-0">No recent errors detected</p>
+                        <p class="mb-0 text-light">No recent errors detected</p>
                     </div>
                 {% endif %}
             </div>
@@ -203,17 +208,17 @@
 <div class="row">
     <div class="col-12">
         <div class="card">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 <h3 class="mb-0"><i class="fab fa-twitter me-2 bitcoin-icon"></i> Recent Tweets</h3>
-                <a href="{{ url_for('posts') }}" class="btn btn-sm btn-outline-primary">
+                <a href="{{ url_for('posts') }}" class="btn btn-sm btn-outline-light">
                     <i class="fas fa-list me-1"></i> View All
                 </a>
             </div>
             <div class="card-body">
                 {% if recent_posts %}
                     <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead class="table-light">
+                        <table class="table table-dark table-hover">
+                            <thead class="table-dark">
                                 <tr>
                                     <th>Time</th>
                                     <th>Tweet</th>

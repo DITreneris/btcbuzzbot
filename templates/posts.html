@@ -16,44 +16,36 @@
 
 <div class="row mb-4">
     <div class="col-12">
-        <!-- Filter Form -->
-        <div class="card">
-            <div class="card-header bg-white">
+        <!-- Filters -->
+        <div class="card mb-4">
+            <div class="card-header">
                 <h3 class="mb-0"><i class="fas fa-filter me-2 bitcoin-icon"></i> Filter Tweets</h3>
             </div>
             <div class="card-body">
-                <form method="get" action="{{ url_for('posts') }}" class="row g-3">
-                    <div class="col-md-3">
-                        <label for="date_from" class="form-label">From Date</label>
-                        <div class="input-group">
-                            <span class="input-group-text"><i class="fas fa-calendar"></i></span>
-                            <input type="date" class="form-control" id="date_from" name="date_from" value="{{ date_from }}">
-                        </div>
+                <form action="{{ url_for('posts') }}" method="get" class="row g-3">
+                    <div class="col-md-4">
+                        <label for="date_from" class="form-label text-light">From Date</label>
+                        <input type="date" class="form-control" id="date_from" name="date_from" value="{{ date_from }}">
                     </div>
-                    <div class="col-md-3">
-                        <label for="date_to" class="form-label">To Date</label>
-                        <div class="input-group">
-                            <span class="input-group-text"><i class="fas fa-calendar"></i></span>
-                            <input type="date" class="form-control" id="date_to" name="date_to" value="{{ date_to }}">
-                        </div>
+                    <div class="col-md-4">
+                        <label for="date_to" class="form-label text-light">To Date</label>
+                        <input type="date" class="form-control" id="date_to" name="date_to" value="{{ date_to }}">
                     </div>
-                    <div class="col-md-3">
-                        <label for="content_type" class="form-label">Content Type</label>
-                        <div class="input-group">
-                            <span class="input-group-text"><i class="fas fa-tag"></i></span>
-                            <select class="form-select" id="content_type" name="content_type">
-                                <option value="" {% if not content_type %}selected{% endif %}>All</option>
-                                <option value="quote" {% if content_type == 'quote' %}selected{% endif %}>Quotes</option>
-                                <option value="joke" {% if content_type == 'joke' %}selected{% endif %}>Jokes</option>
-                            </select>
-                        </div>
+                    <div class="col-md-4">
+                        <label for="content_type" class="form-label text-light">Content Type</label>
+                        <select class="form-control" id="content_type" name="content_type">
+                            <option value="">All</option>
+                            <option value="price" {% if content_type == 'price' %}selected{% endif %}>Price Update</option>
+                            <option value="quote" {% if content_type == 'quote' %}selected{% endif %}>Quote</option>
+                            <option value="joke" {% if content_type == 'joke' %}selected{% endif %}>Joke</option>
+                        </select>
                     </div>
-                    <div class="col-md-3 d-flex align-items-end">
-                        <button type="submit" class="btn btn-primary me-2">
-                            <i class="fas fa-search me-1"></i> Filter
+                    <div class="col-12 d-flex justify-content-end">
+                        <button type="submit" class="btn btn-accent me-2">
+                            <i class="fas fa-search me-2"></i> Apply Filters
                         </button>
-                        <a href="{{ url_for('posts') }}" class="btn btn-outline-secondary">
-                            <i class="fas fa-undo me-1"></i> Reset
+                        <a href="{{ url_for('posts') }}" class="btn btn-outline-light">
+                            <i class="fas fa-times me-2"></i> Clear Filters
                         </a>
                     </div>
                 </form>
@@ -62,80 +54,94 @@
     </div>
 </div>
         
-<!-- Tweet List -->
-<div class="row">
-    <div class="col-12">
+<!-- Tweets -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="mb-0"><i class="fab fa-twitter me-2 bitcoin-icon"></i> Tweet History</h3>
+        <span class="badge bg-info px-3 py-2">{{ total }} Posts</span>
+    </div>
+    <div class="card-body">
         {% if posts %}
-            <div class="card">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                    <h3 class="mb-0"><i class="fab fa-twitter me-2 bitcoin-icon"></i> Tweets</h3>
-                    <span class="badge bg-primary px-3 py-2">Total: {{ total }}</span>
-                </div>
-                <div class="card-body">
-                    <div class="row">
+            <div class="table-responsive">
+                <table class="table table-dark table-hover">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Content</th>
+                            <th>Type</th>
+                            <th>Engagement</th>
+                        </tr>
+                    </thead>
+                    <tbody>
                         {% for post in posts %}
-                            <div class="col-md-6 mb-4">
-                                <div class="tweet-card">
-                                    <div class="tweet-header">
-                                        <div class="tweet-avatar">
-                                            <img src="{{ url_for('static', filename='img/favicon.png') }}" alt="BTCBuzzBot" class="img-fluid rounded-circle">
-                                        </div>
-                                        <div class="tweet-info">
-                                            <h5 class="mb-0">BTCBuzzBot</h5>
-                                            <div class="text-muted small">{{ post.timestamp }}</div>
-                                        </div>
-                                    </div>
-                                    <div class="tweet-content">
-                                        {{ post.tweet }}
-                                    </div>
-                                    <div class="tweet-actions">
-                                        <span><i class="fas fa-heart text-danger"></i> {{ post.likes }}</span>
-                                        <span><i class="fas fa-retweet text-success"></i> {{ post.retweets }}</span>
-                                        <span class="badge {% if post.content_type == 'quote' %}bg-success{% else %}bg-info{% endif %}">
-                                            {{ post.content_type }}
-                                        </span>
-                                        <span class="badge bg-primary ms-2">
-                                            ${{ "{:,.2f}".format(post.price) }}
-                                        </span>
-                                    </div>
-                                    {% if post.tweet_id %}
-                                        <div class="p-3 border-top">
-                                            <a href="https://twitter.com/btcbuzzbot/status/{{ post.tweet_id }}" target="_blank" class="btn btn-sm btn-outline-primary">
-                                                <i class="fab fa-twitter me-1"></i> View on Twitter
-                                            </a>
-                                        </div>
-                                    {% endif %}
-                                </div>
-                            </div>
+                            <tr>
+                                <td class="text-nowrap">{{ post.timestamp }}</td>
+                                <td>{{ post.content }}</td>
+                                <td>
+                                    <span class="badge {% if post.content_type == 'price' %}bg-primary{% elif post.content_type == 'quote' %}bg-success{% else %}bg-warning{% endif %}">
+                                        {{ post.content_type }}
+                                    </span>
+                                </td>
+                                <td class="text-nowrap">
+                                    <span class="me-3">
+                                        <i class="fas fa-heart text-danger"></i> {{ post.likes or 0 }}
+                                    </span>
+                                    <span>
+                                        <i class="fas fa-retweet text-success"></i> {{ post.retweets or 0 }}
+                                    </span>
+                                </td>
+                            </tr>
                         {% endfor %}
-                    </div>
-                    
-                    <!-- Pagination -->
-                    {% if total_pages > 1 %}
-                        <nav aria-label="Tweet pagination" class="mt-4">
-                            <ul class="pagination justify-content-center">
-                                <li class="page-item {% if page == 1 %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('posts', page=page-1, per_page=per_page, date_from=date_from, date_to=date_to, content_type=content_type) }}" aria-label="Previous">
-                                        <span aria-hidden="true">&laquo;</span>
-                                    </a>
-                                </li>
-                                
-                                {% for p in range(1, total_pages + 1) %}
-                                    <li class="page-item {% if p == page %}active{% endif %}">
-                                        <a class="page-link" href="{{ url_for('posts', page=p, per_page=per_page, date_from=date_from, date_to=date_to, content_type=content_type) }}">{{ p }}</a>
-                                    </li>
-                                {% endfor %}
-                                
-                                <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-                                    <a class="page-link" href="{{ url_for('posts', page=page+1, per_page=per_page, date_from=date_from, date_to=date_to, content_type=content_type) }}" aria-label="Next">
-                                        <span aria-hidden="true">&raquo;</span>
-                                    </a>
-                                </li>
-                            </ul>
-                        </nav>
-                    {% endif %}
-                </div>
+                    </tbody>
+                </table>
             </div>
+            
+            <!-- Pagination -->
+            {% if total_pages > 1 %}
+                <nav aria-label="Page navigation" class="mt-4">
+                    <ul class="pagination justify-content-center">
+                        {% if page > 1 %}
+                            <li class="page-item">
+                                <a class="page-link bg-dark text-light border-secondary" href="{{ url_for('posts', page=page-1, per_page=per_page, date_from=date_from, date_to=date_to, content_type=content_type) }}">
+                                    <i class="fas fa-chevron-left"></i>
+                                </a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link bg-dark text-muted border-secondary">
+                                    <i class="fas fa-chevron-left"></i>
+                                </span>
+                            </li>
+                        {% endif %}
+                        
+                        {% for p in range(1, total_pages + 1) %}
+                            {% if p == page %}
+                                <li class="page-item active">
+                                    <span class="page-link bg-accent border-accent">{{ p }}</span>
+                                </li>
+                            {% else %}
+                                <li class="page-item">
+                                    <a class="page-link bg-dark text-light border-secondary" href="{{ url_for('posts', page=p, per_page=per_page, date_from=date_from, date_to=date_to, content_type=content_type) }}">{{ p }}</a>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if page < total_pages %}
+                            <li class="page-item">
+                                <a class="page-link bg-dark text-light border-secondary" href="{{ url_for('posts', page=page+1, per_page=per_page, date_from=date_from, date_to=date_to, content_type=content_type) }}">
+                                    <i class="fas fa-chevron-right"></i>
+                                </a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link bg-dark text-muted border-secondary">
+                                    <i class="fas fa-chevron-right"></i>
+                                </span>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            {% endif %}
         {% else %}
             <div class="alert alert-info">
                 <i class="fas fa-info-circle me-2"></i> No tweets found matching your criteria.
