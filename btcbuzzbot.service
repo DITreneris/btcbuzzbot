@@ -1,0 +1,13 @@
+[Unit]
+Description=BTCBuzzBot Scheduler
+After=network.target
+
+[Service]
+User=deployuser
+WorkingDirectory=/path/to/btcbuzzbot
+Environment="PATH=/path/to/btcbuzzbot/venv/bin"
+ExecStart=/path/to/btcbuzzbot/venv/bin/python -m src.scheduler
+Restart=always
+
+[Install]
+WantedBy=multi-user.target 

@@ -1,0 +1,231 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block head %}
+<style>
+    .status-badge {
+        font-size: 1rem;
+        padding: 0.5rem 1rem;
+    }
+    .log-entry {
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+    }
+    .log-entry:last-child {
+        border-bottom: none;
+    }
+    .error-log {
+        background-color: #fff8f8;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1 class="mb-4">Bot Administration</h1>
+        
+        <!-- Status and Control Panel -->
+        <div class="card mb-4">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0"><i class="fas fa-tachometer-alt"></i> Bot Status & Control</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h4>Current Status</h4>
+                        <div class="d-flex align-items-center mb-3">
+                            <span class="status-badge badge {% if bot_status.status == 'Running' %}bg-success{% else %}bg-danger{% endif %} me-3">
+                                {{ bot_status.status }}
+                            </span>
+                            <span class="text-muted">Last updated: {{ bot_status.timestamp }}</span>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <h6>Next scheduled run:</h6>
+                            <p>{% if bot_status.next_scheduled_run %}{{ bot_status.next_scheduled_run }}{% else %}Not scheduled{% endif %}</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <h6>Status message:</h6>
+                            <p>{{ bot_status.message }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h4>Control Panel</h4>
+                        <div class="d-flex mb-3">
+                            <form action="{{ url_for('control_bot', action='start') }}" method="post" class="me-2">
+                                <button type="submit" class="btn btn-success {% if bot_status.status == 'Running' %}disabled{% endif %}">
+                                    <i class="fas fa-play"></i> Start Bot
+                                </button>
+                            </form>
+                            <form action="{{ url_for('control_bot', action='stop') }}" method="post" class="me-2">
+                                <button type="submit" class="btn btn-danger {% if bot_status.status != 'Running' %}disabled{% endif %}">
+                                    <i class="fas fa-stop"></i> Stop Bot
+                                </button>
+                            </form>
+                            <form action="{{ url_for('control_bot', action='tweet_now') }}" method="post">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-paper-plane"></i> Post Now
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <h6>Scheduled Post Times:</h6>
+                        <div class="d-flex flex-wrap">
+                            {% for time in schedule.post_times %}
+                                <span class="badge bg-info me-2 mb-2">{{ time }}</span>
+                            {% endfor %}
+                        </div>
+                        <small class="text-muted">Timezone: {{ schedule.timezone }}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Bitcoin Price Chart -->
+    <div class="col-md-8 mb-4">
+        <div class="card h-100">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-line"></i> Bitcoin Price History (7 Days)</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="priceChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Error Logs -->
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Recent Errors</h5>
+            </div>
+            <div class="card-body p-0">
+                {% if errors %}
+                    <div class="list-group list-group-flush">
+                        {% for error in errors %}
+                            <div class="log-entry error-log">
+                                <small class="text-muted d-block">{{ error.timestamp }}</small>
+                                <div class="mt-1">{{ error.message }}</div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="p-3 text-center">
+                        <p class="text-success mb-0"><i class="fas fa-check-circle"></i> No recent errors</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Recent Posts -->
+    <div class="col-md-12 mb-4">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="fab fa-twitter"></i> Recent Tweets</h5>
+            </div>
+            <div class="card-body">
+                {% if recent_posts %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Tweet</th>
+                                    <th>Type</th>
+                                    <th>Price</th>
+                                    <th>Engagement</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for post in recent_posts %}
+                                    <tr>
+                                        <td>{{ post.timestamp }}</td>
+                                        <td>{{ post.tweet }}</td>
+                                        <td><span class="badge {% if post.content_type == 'quote' %}bg-success{% else %}bg-info{% endif %}">{{ post.content_type }}</span></td>
+                                        <td>${{ "{:,.2f}".format(post.price) }}</td>
+                                        <td>
+                                            <i class="fas fa-heart text-danger"></i> {{ post.likes }}
+                                            <i class="fas fa-retweet text-success ms-2"></i> {{ post.retweets }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">No tweets posted yet.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Create price chart
+    document.addEventListener('DOMContentLoaded', function() {
+        const ctx = document.getElementById('priceChart').getContext('2d');
+        
+        // Extract data from the server
+        const priceData = {{ price_history|tojson|safe }};
+        
+        // Format data for Chart.js
+        const labels = priceData.map(item => {
+            const date = new Date(item.timestamp);
+            return date.toLocaleDateString();
+        });
+        
+        const prices = priceData.map(item => item.price);
+        
+        // Create the chart
+        const priceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Bitcoin Price (USD)',
+                    data: prices,
+                    backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                    borderColor: 'rgba(255, 159, 64, 1)',
+                    borderWidth: 2,
+                    pointBackgroundColor: 'rgba(255, 159, 64, 1)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + value.toLocaleString();
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Price: $' + context.raw.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %} 

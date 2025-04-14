@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Hero section -->
+    <div class="col-md-12 mb-4">
+        <div class="card bg-dark text-white">
+            <div class="card-body p-5">
+                <h1 class="display-4"><i class="fab fa-bitcoin text-warning"></i> BTCBuzzBot</h1>
+                <p class="lead">A Twitter bot that posts real-time Bitcoin price updates combined with motivational quotes and jokes to engage the crypto community.</p>
+                <hr class="my-4 bg-light">
+                <p>Get the latest Bitcoin prices, stay motivated, and have a laugh with our automated Twitter updates.</p>
+                <a href="https://twitter.com/btcbuzzbot" class="btn btn-primary" target="_blank">
+                    <i class="fab fa-twitter"></i> Follow @btcbuzzbot
+                </a>
+                <a href="{{ url_for('posts') }}" class="btn btn-outline-light">
+                    <i class="fas fa-history"></i> View Tweet History
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Current Bitcoin Price -->
+    <div class="col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-line"></i> Current Bitcoin Price</h5>
+            </div>
+            <div class="card-body text-center">
+                {% if stats.latest_price %}
+                    <h2 class="display-4 mb-3">${{ "{:,.2f}".format(stats.latest_price.price) }}</h2>
+                    <p class="text-muted">Last updated: {{ stats.latest_price.timestamp }}</p>
+                {% else %}
+                    <h2 class="display-4 mb-3">$--,---.--</h2>
+                    <p class="text-muted">Price data not available</p>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">Source: CoinGecko API</small>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Statistics -->
+    <div class="col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="fas fa-chart-pie"></i> Bot Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-4">
+                        <h4>{{ stats.total_posts }}</h4>
+                        <p>Total Tweets</p>
+                    </div>
+                    <div class="col-4">
+                        <h4>{{ stats.total_quotes }}</h4>
+                        <p>Quotes</p>
+                    </div>
+                    <div class="col-4">
+                        <h4>{{ stats.total_jokes }}</h4>
+                        <p>Jokes</p>
+                    </div>
+                </div>
+                <hr>
+                <div class="row text-center">
+                    <div class="col-6">
+                        <h4>{{ stats.avg_likes }}</h4>
+                        <p>Avg. Likes</p>
+                    </div>
+                    <div class="col-6">
+                        <h4>{{ stats.avg_retweets }}</h4>
+                        <p>Avg. Retweets</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Tweets -->
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="fab fa-twitter"></i> Recent Tweets</h5>
+            </div>
+            <div class="card-body">
+                {% if recent_posts %}
+                    <div class="list-group">
+                        {% for post in recent_posts %}
+                            <div class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1">Bitcoin Update</h5>
+                                    <small class="text-muted">{{ post.timestamp }}</small>
+                                </div>
+                                <p class="mb-1">{{ post.tweet }}</p>
+                                <small class="text-muted">
+                                    <i class="fas fa-heart text-danger"></i> {{ post.likes }}
+                                    <i class="fas fa-retweet text-success ms-3"></i> {{ post.retweets }}
+                                    <span class="badge bg-secondary ms-3">{{ post.content_type }}</span>
+                                </small>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">No tweets posted yet.</div>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <a href="{{ url_for('posts') }}" class="btn btn-outline-primary">View All Tweets</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- About Section -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> About BTCBuzzBot</h5>
+            </div>
+            <div class="card-body">
+                <h3>What is BTCBuzzBot?</h3>
+                <p>BTCBuzzBot is a Twitter bot that automatically posts Bitcoin price updates combined with motivational quotes or humorous content. The bot aims to engage the crypto community with informative and entertaining tweets.</p>
+                
+                <h3>Features</h3>
+                <ul>
+                    <li>Real-time BTC price fetching from CoinGecko</li>
+                    <li>Asynchronous operations for better performance</li>
+                    <li>SQLite database for local data persistence</li>
+                    <li>Scheduled Twitter posts (4 times daily)</li>
+                    <li>Quote and joke rotation system</li>
+                    <li>Error handling and fallback mechanisms</li>
+                </ul>
+                
+                <h3>Technical Details</h3>
+                <p>BTCBuzzBot is built with Python using asynchronous operations to efficiently handle API requests and database operations. It uses SQLite for data storage and the Twitter API v2 for posting updates.</p>
+                
+                <div class="alert alert-warning">
+                    <h4><i class="fas fa-exclamation-triangle"></i> Disclaimer</h4>
+                    <p class="mb-0">BTCBuzzBot is for informational purposes only. The content provided should not be construed as financial advice. Always do your own research before making investment decisions.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

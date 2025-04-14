@@ -1,0 +1,378 @@
+import os
+import sqlite3
+import datetime
+from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
+
+# Initialize Flask app
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key')
+app.config['DATABASE'] = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
+
+# Database helper functions
+def get_db_connection():
+    """Get a SQLite database connection"""
+    conn = sqlite3.connect(app.config['DATABASE'])
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    """Initialize database with required tables for web interface"""
+    with get_db_connection() as conn:
+        # Create web_users table
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS web_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                is_admin BOOLEAN NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+        ''')
+        
+        # Create bot_logs table
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS bot_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL
+            )
+        ''')
+        
+        # Create bot_status table
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS bot_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                status TEXT NOT NULL,
+                next_scheduled_run TEXT,
+                message TEXT
+            )
+        ''')
+        
+        # Check if admin user exists, if not create default
+        admin = conn.execute('SELECT * FROM web_users WHERE username = ?', ('admin',)).fetchone()
+        if not admin:
+            # Create default admin user with password 'changeme'
+            conn.execute(
+                'INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)',
+                ('admin', generate_password_hash('changeme'), True, datetime.datetime.utcnow().isoformat())
+            )
+        
+        conn.commit()
+
+# Authentication decorator - keeping for potential future use but not required anymore
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please log in to access this page', 'danger')
+            return redirect(url_for('login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Removed admin_required decorator as it's no longer needed
+
+# Helper functions for bot data
+def get_bot_status():
+    """Get the current bot status"""
+    with get_db_connection() as conn:
+        status = conn.execute(
+            'SELECT * FROM bot_status ORDER BY timestamp DESC LIMIT 1'
+        ).fetchone()
+        
+        # If no status exists, return a default
+        if not status:
+            return {
+                'status': 'Unknown',
+                'timestamp': datetime.datetime.utcnow().isoformat(),
+                'next_scheduled_run': None,
+                'message': 'Bot status not available'
+            }
+            
+        return dict(status)
+
+def get_recent_posts(limit=10):
+    """Get recent posts from the database"""
+    with get_db_connection() as conn:
+        posts = conn.execute(
+            'SELECT * FROM posts ORDER BY timestamp DESC LIMIT ?', 
+            (limit,)
+        ).fetchall()
+        return [dict(post) for post in posts]
+
+def get_posts_paginated(page=1, per_page=10, date_from=None, date_to=None, content_type=None):
+    """Get paginated posts with filtering"""
+    with get_db_connection() as conn:
+        query = 'SELECT * FROM posts WHERE 1=1'
+        params = []
+        
+        # Apply filters
+        if date_from:
+            query += ' AND timestamp >= ?'
+            params.append(date_from)
+        if date_to:
+            query += ' AND timestamp <= ?'
+            params.append(date_to)
+        if content_type:
+            query += ' AND content_type = ?'
+            params.append(content_type)
+            
+        # Count total matching records
+        count_query = query.replace('SELECT *', 'SELECT COUNT(*)')
+        total = conn.execute(count_query, params).fetchone()[0]
+        
+        # Add pagination
+        query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+        offset = (page - 1) * per_page
+        params.extend([per_page, offset])
+        
+        # Execute query
+        posts = conn.execute(query, params).fetchall()
+        return [dict(post) for post in posts], total
+
+def get_price_history(days=7):
+    """Get Bitcoin price history for the specified number of days"""
+    with get_db_connection() as conn:
+        timestamp = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).isoformat()
+        prices = conn.execute(
+            'SELECT * FROM prices WHERE timestamp >= ? ORDER BY timestamp ASC',
+            (timestamp,)
+        ).fetchall()
+        return [dict(price) for price in prices]
+
+def get_basic_stats():
+    """Get basic statistics about the bot"""
+    with get_db_connection() as conn:
+        total_posts = conn.execute('SELECT COUNT(*) FROM posts').fetchone()[0]
+        total_quotes = conn.execute('SELECT COUNT(*) FROM quotes').fetchone()[0]
+        total_jokes = conn.execute('SELECT COUNT(*) FROM jokes').fetchone()[0]
+        
+        # Average engagement
+        avg_likes = conn.execute('SELECT AVG(likes) FROM posts').fetchone()[0] or 0
+        avg_retweets = conn.execute('SELECT AVG(retweets) FROM posts').fetchone()[0] or 0
+        
+        # Most recent price
+        latest_price = conn.execute(
+            'SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1'
+        ).fetchone()
+        
+        return {
+            'total_posts': total_posts,
+            'total_quotes': total_quotes,
+            'total_jokes': total_jokes,
+            'avg_likes': round(avg_likes, 1),
+            'avg_retweets': round(avg_retweets, 1),
+            'latest_price': dict(latest_price) if latest_price else None
+        }
+
+def get_recent_errors(limit=5):
+    """Get recent error logs"""
+    with get_db_connection() as conn:
+        errors = conn.execute(
+            "SELECT * FROM bot_logs WHERE level = 'ERROR' ORDER BY timestamp DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        return [dict(error) for error in errors]
+
+def get_scheduler_config():
+    """Get the scheduler configuration"""
+    # This would typically read from the .env file or database
+    # For now, we'll just use hardcoded values from .env
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    return {
+        'post_times': os.environ.get('POST_TIMES', '08:00,12:00,16:00,20:00').split(','),
+        'timezone': os.environ.get('TIMEZONE', 'UTC')
+    }
+
+# Routes - Home and About
+@app.route('/')
+def home():
+    """Home page with about information and recent tweets"""
+    stats = get_basic_stats()
+    recent_posts = get_recent_posts(limit=5)
+    
+    return render_template('home.html', 
+                          title='BTCBuzzBot - Bitcoin Price Twitter Bot',
+                          stats=stats,
+                          recent_posts=recent_posts)
+
+# Routes - Posts
+@app.route('/posts')
+def posts():
+    """Posts page with tweet history and filtering"""
+    # Get pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    
+    # Get filter parameters
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    content_type = request.args.get('content_type')
+    
+    # Get posts with pagination and filtering
+    posts, total = get_posts_paginated(page, per_page, date_from, date_to, content_type)
+    
+    # Get basic stats
+    stats = get_basic_stats()
+    
+    # Calculate total pages
+    total_pages = (total + per_page - 1) // per_page
+    
+    return render_template('posts.html',
+                          title='Tweet History',
+                          posts=posts,
+                          stats=stats,
+                          page=page,
+                          per_page=per_page,
+                          total=total,
+                          total_pages=total_pages,
+                          date_from=date_from,
+                          date_to=date_to,
+                          content_type=content_type)
+
+# Routes - Authentication (keeping for reference but not required for admin access)
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page"""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        with get_db_connection() as conn:
+            user = conn.execute(
+                'SELECT * FROM web_users WHERE username = ?',
+                (username,)
+            ).fetchone()
+            
+            if user and check_password_hash(user['password_hash'], password):
+                session.clear()
+                session['user_id'] = user['id']
+                flash('Login successful', 'success')
+                
+                next_page = request.args.get('next')
+                if not next_page or not next_page.startswith('/'):
+                    next_page = url_for('admin_panel') if user['is_admin'] else url_for('home')
+                
+                return redirect(next_page)
+            
+            flash('Invalid username or password', 'danger')
+    
+    return render_template('login.html', title='Login')
+
+@app.route('/logout')
+def logout():
+    """Logout user"""
+    session.clear()
+    flash('You have been logged out', 'info')
+    return redirect(url_for('home'))
+
+# Routes - Admin Panel
+@app.route('/admin')
+def admin_panel():
+    """Admin panel for bot control and monitoring"""
+    # Get bot status
+    bot_status = get_bot_status()
+    
+    # Get scheduled times
+    schedule = get_scheduler_config()
+    
+    # Get recent errors
+    errors = get_recent_errors(limit=5)
+    
+    # Get recent posts
+    recent_posts = get_recent_posts(limit=5)
+    
+    # Get price history for chart
+    price_history = get_price_history(days=7)
+    
+    return render_template('admin.html', 
+                          title='Admin Panel',
+                          bot_status=bot_status,
+                          schedule=schedule,
+                          errors=errors,
+                          recent_posts=recent_posts,
+                          price_history=price_history)
+
+@app.route('/admin/control/<action>', methods=['POST'])
+def control_bot(action):
+    """Control bot operation"""
+    # This would interface with the bot functions
+    # For now, just update the status in the database
+    
+    if action == 'start':
+        message = 'Bot started'
+        status = 'Running'
+    elif action == 'stop':
+        message = 'Bot stopped'
+        status = 'Stopped'
+    elif action == 'tweet_now':
+        message = 'Manual tweet triggered'
+        status = 'Running'
+        # Here you would actually trigger the bot to post
+        # For now, just log it
+    else:
+        flash(f'Unknown action: {action}', 'danger')
+        return redirect(url_for('admin_panel'))
+    
+    # Update bot status
+    with get_db_connection() as conn:
+        conn.execute(
+            'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+            (datetime.datetime.utcnow().isoformat(), status, message)
+        )
+        conn.commit()
+    
+    flash(message, 'success')
+    return redirect(url_for('admin_panel'))
+
+# Health check endpoint for monitoring
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring systems"""
+    try:
+        # Check database connection
+        with get_db_connection() as conn:
+            db_status = conn.execute('SELECT 1').fetchone() is not None
+        
+        # Get bot status
+        bot_status_data = get_bot_status()
+        
+        # Check if bot has posted recently (within last 24h)
+        with get_db_connection() as conn:
+            recent_post = conn.execute(
+                "SELECT COUNT(*) FROM posts WHERE timestamp > datetime('now', '-1 day')"
+            ).fetchone()[0] > 0
+        
+        response = {
+            'status': 'healthy',
+            'timestamp': datetime.datetime.utcnow().isoformat(),
+            'checks': {
+                'database': db_status,
+                'bot_status': bot_status_data['status'],
+                'recent_post': recent_post
+            }
+        }
+        
+        # If any check fails, mark as unhealthy
+        if not db_status or bot_status_data['status'] == 'Error':
+            response['status'] = 'unhealthy'
+        
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.datetime.utcnow().isoformat(),
+            'error': str(e)
+        }), 500
+
+# Initialize the database on startup
+with app.app_context():
+    init_db()
+
+if __name__ == '__main__':
+    app.run(debug=True) 
