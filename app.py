@@ -527,37 +527,19 @@ def control_bot(action):
         message = 'Manual tweet triggered'
         status = 'Running'
         
-        # Try to import and use different tweet modules
+        # Try to import and use simple_tweet (latest version)
         try:
-            # First try the basic_tweet module which has better compatibility
-            try:
-                import basic_tweet
-                print("Using basic_tweet module")
-                if basic_tweet.post_tweet():
-                    message = "Tweet posted successfully using basic_tweet module!"
-                    status = 'Running'
-                else:
-                    # Try the direct_tweet as a fallback
-                    import direct_tweet
-                    print("Falling back to direct_tweet module")
-                    if direct_tweet.post_tweet():
-                        message = "Tweet posted successfully using direct_tweet module!"
-                        status = 'Running'
-                    else:
-                        message = "Failed to post tweet with both modules"
-                        status = 'Error'
-            except ImportError:
-                # If basic_tweet isn't available, try direct_tweet
-                import direct_tweet
-                print("Using direct_tweet module")
-                if direct_tweet.post_tweet():
-                    message = "Tweet posted successfully!"
-                    status = 'Running'
-                else:
-                    message = "Failed to post tweet"
-                    status = 'Error'
+            print("\n*** TWEET ATTEMPT VIA SIMPLE_TWEET ***")
+            import simple_tweet
+            if simple_tweet.post_tweet():
+                message = "Tweet posted successfully using simple_tweet module!"
+                status = 'Running'
+            else:
+                message = "Failed to post tweet"
+                status = 'Error'
                 
         except Exception as e:
+            print(f"Error in tweet_now action: {e}")
             message = f"Error posting tweet: {str(e)}"
             status = 'Error'
             import traceback

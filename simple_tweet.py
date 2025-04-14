@@ -1,50 +1,108 @@
-import tweepy
+"""
+Ultra-simple compatibility Twitter module
+"""
 import os
-from dotenv import load_dotenv
+import sys
+import time
+import traceback
+import json
+from datetime import datetime
 
-def post_simple_tweet():
-    """Post a simple tweet using the minimal required code"""
-    # Load environment variables
-    load_dotenv()
+def post_tweet():
+    """Post a tweet to Twitter, with compatibility for different tweepy versions"""
+    # Load environment variables directly for Twitter API credentials
+    API_KEY = os.environ.get('TWITTER_API_KEY', '')
+    API_SECRET = os.environ.get('TWITTER_API_SECRET', '')
+    ACCESS_TOKEN = os.environ.get('TWITTER_ACCESS_TOKEN', '')
+    ACCESS_TOKEN_SECRET = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET', '')
     
-    # Get Twitter credentials
-    api_key = os.getenv("TWITTER_API_KEY")
-    api_secret = os.getenv("TWITTER_API_SECRET")
-    access_token = os.getenv("TWITTER_ACCESS_TOKEN")
-    access_token_secret = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
-    
-    # Authentication
-    auth = tweepy.OAuth1UserHandler(
-        consumer_key=api_key,
-        consumer_secret=api_secret,
-        access_token=access_token,
-        access_token_secret=access_token_secret
-    )
-    
-    # Create API object
-    api = tweepy.API(auth)
-    
+    if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET]):
+        print("ERROR: Missing Twitter API credentials in environment variables")
+        return False
+        
     try:
-        # Post a simple tweet
-        print("Attempting to post a tweet...")
-        tweet_text = "Testing my new BTCBuzzBot! 🚀 #Bitcoin"
-        result = api.update_status(status=tweet_text)
+        # Create a timestamped message to avoid duplicate tweet errors
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        message = f"BTCBuzzBot test ({timestamp}) #Bitcoin #Testing"
         
-        print(f"Success! Tweet posted with ID: {result.id}")
-        print(f"Tweet URL: https://twitter.com/user/status/{result.id}")
-        
+        # Now attempt to import tweepy and post
+        try:
+            import tweepy
+            print(f"Using tweepy version: {tweepy.__version__}")
+            
+            # First try with v1.1 API (most reliable)
+            try:
+                # Create v1.1 API connection
+                auth = tweepy.OAuth1UserHandler(
+                    API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET
+                )
+                api = tweepy.API(auth)
+                
+                # Verify credentials
+                me = api.verify_credentials()
+                print(f"Authenticated as: @{me.screen_name}")
+                
+                # Post the tweet
+                status = api.update_status(message)
+                
+                if hasattr(status, 'id'):
+                    print(f"Tweet posted successfully! ID: {status.id}")
+                    print(f"Content: {message}")
+                    return True
+                else:
+                    print(f"Error: Invalid status response: {status}")
+                    # Fall through to v2 API
+            except Exception as e1:
+                print(f"Error with v1.1 API: {e1}")
+                # Fall through to v2 API
+                
+            # Try with v2 API as fallback
+            try:
+                client = tweepy.Client(
+                    consumer_key=API_KEY,
+                    consumer_secret=API_SECRET,
+                    access_token=ACCESS_TOKEN,
+                    access_token_secret=ACCESS_TOKEN_SECRET
+                )
+                
+                # Add a different timestamp to avoid duplicate error if v1 attempt failed
+                message = f"BTCBuzzBot test ({timestamp} alt) #Bitcoin #Testing"
+                
+                # Post the tweet
+                response = client.create_tweet(text=message)
+                
+                if response and hasattr(response, 'data') and 'id' in response.data:
+                    tweet_id = response.data['id']
+                    print(f"Tweet posted successfully with v2 API! ID: {tweet_id}")
+                    print(f"Content: {message}")
+                    return True
+                else:
+                    print(f"Error: Invalid v2 API response: {response}")
+                    return False
+            except Exception as e2:
+                print(f"Error with v2 API: {e2}")
+                # Both methods failed, report failure
+                print("ALL TWEET METHODS FAILED")
+                return False
+                
+        except ImportError as e:
+            print(f"Error importing tweepy: {e}")
+            print("Tweepy not installed - please install with 'pip install tweepy'")
+            return False
+            
     except Exception as e:
-        print(f"Error posting tweet: {e}")
-        # Provide detailed error information
-        if hasattr(e, 'response') and hasattr(e.response, 'text'):
-            print(f"Error details: {e.response.text}")
-        
-        print("\nTo post tweets, your Twitter Developer App needs the 'Read and Write' permissions.")
-        print("1. Go to developer.twitter.com/portal/projects")
-        print("2. Select your project and app")
-        print("3. Go to 'User authentication settings'")
-        print("4. Enable 'Read and Write' permissions")
-        print("5. Save changes and regenerate tokens if needed")
+        print(f"Unexpected error in tweet function: {e}")
+        traceback.print_exc()
+        return False
 
 if __name__ == "__main__":
-    post_simple_tweet() 
+    print(f"=== Simple Tweet Test ({datetime.now().isoformat()}) ===")
+    
+    result = post_tweet()
+    
+    if result:
+        print("SUCCESS: Tweet posted!")
+        sys.exit(0)
+    else:
+        print("FAILURE: Tweet could not be posted")
+        sys.exit(1) 
