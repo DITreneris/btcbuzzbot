@@ -2,6 +2,7 @@ import os
 import sqlite3
 import datetime
 import requests
+import time
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -203,50 +204,83 @@ def get_price_history(days=7):
 
 def fetch_bitcoin_price():
     """Fetch current Bitcoin price from CoinGecko API"""
-    try:
-        url = "https://api.coingecko.com/api/v3/simple/price"
-        params = {
-            "ids": "bitcoin",
-            "vs_currencies": "usd",
-            "include_24hr_change": "true"
-        }
-        
-        # Add CoinGecko API key to headers
-        headers = {}
-        api_key = os.environ.get("COINGECKO_API_KEY")
-        if api_key:
-            headers["x-cg-api-key"] = api_key
-        
-        response = requests.get(url, params=params, headers=headers, timeout=10)
-        data = response.json()
-        
-        if response.status_code == 200 and "bitcoin" in data:
-            price = data["bitcoin"]["usd"]
-            price_change = data["bitcoin"].get("usd_24h_change", 0)
-            
-            # Store in database
-            with get_db_connection() as conn:
-                conn.execute(
-                    'INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)',
-                    (datetime.datetime.utcnow().isoformat(), price, 'USD')
-                )
-                conn.commit()
-                
-            return {
-                "success": True,
-                "price": price,
-                "price_change": price_change
+    max_retries = int(os.environ.get("COINGECKO_RETRY_LIMIT", 3))
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            url = "https://api.coingecko.com/api/v3/simple/price"
+            params = {
+                "ids": "bitcoin",
+                "vs_currencies": "usd",
+                "include_24hr_change": "true"
             }
-        else:
+            
+            # Add CoinGecko API key to headers
+            headers = {}
+            api_key = os.environ.get("COINGECKO_API_KEY")
+            if api_key:
+                headers["x-cg-api-key"] = api_key
+            
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            
+            # Handle rate limiting
+            if response.status_code == 429:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    continue
+                else:
+                    return {
+                        "success": False,
+                        "error": "Rate limit exceeded for CoinGecko API"
+                    }
+            
+            # Handle other error status codes
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"API error: {response.status_code}"
+                }
+            
+            data = response.json()
+            
+            if "bitcoin" in data:
+                price = data["bitcoin"]["usd"]
+                price_change = data["bitcoin"].get("usd_24h_change", 0)
+                
+                # Store in database
+                with get_db_connection() as conn:
+                    conn.execute(
+                        'INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)',
+                        (datetime.datetime.utcnow().isoformat(), price, 'USD')
+                    )
+                    conn.commit()
+                    
+                return {
+                    "success": True,
+                    "price": price,
+                    "price_change": price_change
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Bitcoin data not found in API response"
+                }
+        except requests.exceptions.RequestException as e:
+            # Network error handling
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            else:
+                return {
+                    "success": False,
+                    "error": f"Network error: {str(e)}"
+                }
+        except Exception as e:
             return {
                 "success": False,
-                "error": "Failed to fetch Bitcoin price from CoinGecko"
+                "error": str(e)
             }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
 
 def get_basic_stats():
     """Get basic statistics about the bot"""
@@ -440,6 +474,11 @@ def control_bot(action):
         status = 'Running'
         # Here you would actually trigger the bot to post
         # For now, just log it
+    elif action == 'seed_prices':
+        # Seed the database with 7 days of price data for testing
+        seed_price_data()
+        message = 'Price data seeded successfully'
+        status = 'Running'
     else:
         flash(f'Unknown action: {action}', 'danger')
         return redirect(url_for('admin_panel'))
@@ -454,6 +493,39 @@ def control_bot(action):
     
     flash(message, 'success')
     return redirect(url_for('admin_panel'))
+
+def seed_price_data():
+    """Seed the database with 7 days of price data for testing"""
+    # Get real current price first
+    current_price_data = fetch_bitcoin_price()
+    if not current_price_data["success"]:
+        return False
+        
+    current_price = current_price_data["price"]
+    
+    # Create 7 days of simulated price data
+    with get_db_connection() as conn:
+        # Start from 7 days ago
+        for day in range(7, 0, -1):
+            # Create 6 price points per day
+            for hour in range(0, 24, 4):
+                # Generate timestamp
+                timestamp = (datetime.datetime.utcnow() - datetime.timedelta(days=day, hours=hour)).isoformat()
+                
+                # Generate slightly varied price
+                # Price oscillates between -5% and +5% of current price
+                variation = ((day * hour) % 10 - 5) / 100
+                price = current_price * (1 + variation)
+                
+                # Insert into database
+                conn.execute(
+                    'INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)',
+                    (timestamp, price, 'USD')
+                )
+        
+        conn.commit()
+    
+    return True
 
 # Health check endpoint for monitoring
 @app.route('/health')
@@ -561,10 +633,17 @@ def refresh_price():
         result = fetch_bitcoin_price()
         
         if result["success"]:
+            # Also update the stats cache
+            with get_db_connection() as conn:
+                latest_price = conn.execute(
+                    'SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1'
+                ).fetchone()
+            
             return jsonify({
                 'success': True,
                 'price': f"${result['price']:,.2f}",
-                'change': f"{result['price_change']:.2f}%"
+                'change': f"{result['price_change']:.2f}%",
+                'timestamp': latest_price['timestamp'] if latest_price else datetime.datetime.utcnow().isoformat()
             })
         else:
             return jsonify({

@@ -104,6 +104,55 @@
     </div>
 </div>
 
+<!-- Admin Controls -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h3><i class="fas fa-cogs me-2 bitcoin-icon"></i> Bot Controls</h3>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <!-- Tweet Now Button -->
+            <div class="col-lg-4 col-md-6">
+                <div class="d-grid">
+                    <form action="{{ url_for('control_bot', action='tweet_now') }}" method="post">
+                        <button type="submit" class="btn btn-accent w-100">
+                            <i class="fab fa-twitter me-2"></i> Post Tweet Now
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <!-- Start/Stop Buttons -->
+            <div class="col-lg-4 col-md-6">
+                <div class="d-grid">
+                    {% if bot_status.status == 'Running' %}
+                        <form action="{{ url_for('control_bot', action='stop') }}" method="post">
+                            <button type="submit" class="btn btn-danger w-100">
+                                <i class="fas fa-stop-circle me-2"></i> Stop Bot
+                            </button>
+                        </form>
+                    {% else %}
+                        <form action="{{ url_for('control_bot', action='start') }}" method="post">
+                            <button type="submit" class="btn btn-success w-100">
+                                <i class="fas fa-play-circle me-2"></i> Start Bot
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+            <!-- Seed Price Data Button -->
+            <div class="col-lg-4 col-md-6">
+                <div class="d-grid">
+                    <form action="{{ url_for('control_bot', action='seed_prices') }}" method="post">
+                        <button type="submit" class="btn btn-info w-100">
+                            <i class="fas fa-chart-line me-2"></i> Seed Price Data
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row mb-4">
     <!-- Bitcoin Price Chart -->
     <div class="col-lg-8 mb-4">
