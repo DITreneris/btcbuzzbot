@@ -11,4 +11,5 @@ werkzeug==3.0.2
 gunicorn==22.0.0
 pyjwt==2.8.0
 bcrypt==4.1.2
-psycopg2-binary==2.9.9 
+psycopg2-binary==2.9.9
+flask-limiter==3.5.1 

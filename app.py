@@ -4,11 +4,22 @@ import datetime
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # Initialize Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key')
 app.config['DATABASE'] = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
+
+# Initialize rate limiter
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+    strategy="fixed-window"
+)
 
 # Database helper functions
 def get_db_connection():
@@ -273,6 +284,7 @@ def logout():
 
 # Routes - Admin Panel
 @app.route('/admin')
+@limiter.limit("30 per minute")
 def admin_panel():
     """Admin panel for bot control and monitoring"""
     # Get bot status
@@ -299,6 +311,7 @@ def admin_panel():
                           price_history=price_history)
 
 @app.route('/admin/control/<action>', methods=['POST'])
+@limiter.limit("10 per minute")
 def control_bot(action):
     """Control bot operation"""
     # This would interface with the bot functions
@@ -332,6 +345,7 @@ def control_bot(action):
 
 # Health check endpoint for monitoring
 @app.route('/health')
+@limiter.limit("60 per minute")
 def health_check():
     """Health check endpoint for monitoring systems"""
     try:
@@ -369,6 +383,73 @@ def health_check():
             'timestamp': datetime.datetime.utcnow().isoformat(),
             'error': str(e)
         }), 500
+
+# API endpoints
+@app.route('/api/posts', methods=['GET'])
+@limiter.limit("30 per minute")
+def api_posts():
+    """API endpoint to get recent posts"""
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = min(int(request.args.get('per_page', 10)), 100)  # Limit max items per page
+        
+        posts, total = get_posts_paginated(
+            page=page, 
+            per_page=per_page, 
+            date_from=request.args.get('date_from'),
+            date_to=request.args.get('date_to'),
+            content_type=request.args.get('content_type')
+        )
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'posts': posts,
+                'total': total,
+                'page': page,
+                'per_page': per_page,
+                'total_pages': (total + per_page - 1) // per_page
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+
+@app.route('/api/stats', methods=['GET'])
+@limiter.limit("30 per minute")
+def api_stats():
+    """API endpoint to get bot statistics"""
+    try:
+        stats = get_basic_stats()
+        
+        # Get price history for specified days
+        days = min(int(request.args.get('days', 7)), 30)  # Limit max days
+        price_history = get_price_history(days=days)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'stats': stats,
+                'price_history': price_history
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
+
+# Error handlers
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Handle rate limit exceeded errors"""
+    return jsonify({
+        'success': False,
+        'error': 'Rate limit exceeded',
+        'message': str(e.description)
+    }), 429
 
 # Initialize the database on startup
 with app.app_context():

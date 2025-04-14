@@ -131,6 +131,18 @@ HODL to the moon! 🚀
 #Bitcoin #Crypto
 ```
 
+## API Rate Limiting
+
+The application implements rate limiting to prevent abuse of the API endpoints. The following limits are enforced:
+
+- Default limit: 200 requests per day and 50 requests per hour per IP address
+- Admin panel: 30 requests per minute
+- Admin control actions: 10 requests per minute
+- Health check endpoint: 60 requests per minute
+- API endpoints: 30 requests per minute
+
+When a rate limit is exceeded, the API will return a 429 Too Many Requests response with a JSON error message.
+
 ## Contributing
 
 1. Fork the repository

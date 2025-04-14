@@ -1,49 +1,97 @@
 import os
+import logging
+from pathlib import Path
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 
+# Setup logging
+def configure_logging():
+    """Configure logging for the application"""
+    log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+    log_format = '[%(asctime)s] [%(levelname)s] %(name)s: %(message)s'
+    
+    # Configure root logger
+    logging.basicConfig(
+        level=getattr(logging, log_level),
+        format=log_format,
+        handlers=[
+            logging.StreamHandler(),  # Log to stdout/stderr
+        ]
+    )
+    
+    # Create a logger for this application
+    logger = logging.getLogger('btcbuzzbot')
+    
+    # Log startup information
+    logger.info(f"Starting BTCBuzzBot with log level: {log_level}")
+    
+    return logger
+
 class Config:
-    """Configuration management class"""
+    """Configuration class for the application"""
+    
     def __init__(self):
-        # Load environment variables
+        # Load environment variables from .env file
         load_dotenv()
         
+        # Setup logging
+        self.logger = configure_logging()
+        
+        # Twitter API credentials
+        self.twitter_api_key = os.environ.get('TWITTER_API_KEY')
+        self.twitter_api_secret = os.environ.get('TWITTER_API_SECRET')
+        self.twitter_access_token = os.environ.get('TWITTER_ACCESS_TOKEN')
+        self.twitter_access_token_secret = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET')
+        
+        if not all([self.twitter_api_key, self.twitter_api_secret, 
+                   self.twitter_access_token, self.twitter_access_token_secret]):
+            self.logger.warning("Some Twitter API credentials are missing. Tweet posting may fail.")
+        
         # Database configuration
-        self.sqlite_db_path = os.getenv("SQLITE_DB_PATH", "btcbuzzbot.db")
+        self.sqlite_db_path = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
+        self.db_url = os.environ.get('DATABASE_URL')
         
-        # Twitter configuration
-        self.twitter_api_key = os.getenv("TWITTER_API_KEY", "")
-        self.twitter_api_secret = os.getenv("TWITTER_API_SECRET", "")
-        self.twitter_access_token = os.getenv("TWITTER_ACCESS_TOKEN", "")
-        self.twitter_access_token_secret = os.getenv("TWITTER_ACCESS_TOKEN_SECRET", "")
+        # Fix Heroku's postgres:// URL if needed
+        if self.db_url and self.db_url.startswith('postgres://'):
+            self.db_url = self.db_url.replace('postgres://', 'postgresql://', 1)
+            self.logger.info("Converted postgres:// to postgresql:// in DATABASE_URL")
         
-        # Bot configuration
-        self.post_times = os.getenv("POST_TIMES", "08:00,12:00,16:00,20:00").split(",")
-        self.timezone = os.getenv("TIMEZONE", "UTC")
+        # Determine if PostgreSQL should be used
+        self.use_postgres = bool(self.db_url)
         
-        # CoinGecko configuration
-        self.coingecko_api_url = os.getenv("COINGECKO_API_URL", "https://api.coingecko.com/api/v3")
-        self.coingecko_retry_limit = int(os.getenv("COINGECKO_RETRY_LIMIT", "3"))
+        # CoinGecko API configuration
+        self.coingecko_api_url = os.environ.get('COINGECKO_API_URL', 'https://api.coingecko.com/api/v3')
+        self.coingecko_retry_limit = int(os.environ.get('COINGECKO_RETRY_LIMIT', '3'))
         
-        # Validate required settings
-        self.validate()
-    
+        # Scheduler configuration
+        post_times_str = os.environ.get('POST_TIMES', '08:00,12:00,16:00,20:00')
+        self.post_times = [time.strip() for time in post_times_str.split(',')]
+        self.timezone = os.environ.get('TIMEZONE', 'UTC')
+        
+        # Log configuration info
+        self.logger.info(f"Database: {'PostgreSQL' if self.use_postgres else 'SQLite'}")
+        self.logger.info(f"Scheduled posting times: {', '.join(self.post_times)} ({self.timezone})")
+        
     def validate(self):
-        """Validate required settings"""
-        if not self.twitter_api_key or not self.twitter_api_secret:
-            raise ValueError("Twitter API key and secret are required")
+        """Validate the configuration"""
+        errors = []
         
-        if not self.twitter_access_token or not self.twitter_access_token_secret:
-            raise ValueError("Twitter access token and secret are required")
+        # Check Twitter API credentials
+        if not all([self.twitter_api_key, self.twitter_api_secret, 
+                   self.twitter_access_token, self.twitter_access_token_secret]):
+            errors.append("Twitter API credentials are incomplete")
         
-        # Validate post times format
-        for time_str in self.post_times:
-            try:
-                hours, minutes = time_str.split(":")
-                if not (0 <= int(hours) <= 23 and 0 <= int(minutes) <= 59):
-                    raise ValueError(f"Invalid time format: {time_str}")
-            except Exception:
-                raise ValueError(f"Invalid time format: {time_str}")
+        # Check database configuration
+        if not self.use_postgres and not Path(self.sqlite_db_path).parent.exists():
+            errors.append(f"SQLite database directory does not exist: {Path(self.sqlite_db_path).parent}")
+        
+        if errors:
+            for error in errors:
+                self.logger.error(f"Configuration error: {error}")
+            return False
+        
+        self.logger.info("Configuration validation passed")
+        return True
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary"""

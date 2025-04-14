@@ -21,7 +21,13 @@ class Database:
         """Initialize database connection - supports both SQLite and PostgreSQL"""
         self.db_path = db_path
         self.connection = None
-        self.db_url = os.environ.get('DATABASE_URL')
+        
+        # Heroku provides DATABASE_URL, but may use postgres:// prefix which psycopg2 doesn't support
+        db_url = os.environ.get('DATABASE_URL')
+        if db_url and db_url.startswith('postgres://'):
+            db_url = db_url.replace('postgres://', 'postgresql://', 1)
+        
+        self.db_url = db_url
         self.is_postgres = self.db_url is not None and PSYCOPG2_AVAILABLE
         
         if self.is_postgres:
@@ -50,22 +56,33 @@ class Database:
         """Get PostgreSQL connection"""
         if not self.is_postgres:
             raise ValueError("PostgreSQL is not configured")
-            
-        result = urlparse(self.db_url)
-        user = result.username
-        password = result.password
-        database = result.path[1:]
-        hostname = result.hostname
-        port = result.port
         
-        conn = psycopg2.connect(
-            database=database,
-            user=user,
-            password=password,
-            host=hostname,
-            port=port
-        )
-        return conn
+        try:
+            # First try using the URL directly
+            conn = psycopg2.connect(self.db_url)
+            return conn
+        except Exception as e:
+            print(f"Error connecting with URL directly: {e}, trying with parsed components")
+            # If that fails, parse the URL and connect with individual components
+            result = urlparse(self.db_url)
+            user = result.username
+            password = result.password
+            database = result.path[1:]
+            hostname = result.hostname
+            port = result.port
+            
+            try:
+                conn = psycopg2.connect(
+                    database=database,
+                    user=user,
+                    password=password,
+                    host=hostname,
+                    port=port
+                )
+                return conn
+            except Exception as conn_error:
+                print(f"Error connecting to PostgreSQL: {conn_error}")
+                raise
     
     def _create_tables_postgres(self):
         """Create database tables in PostgreSQL if they don't exist"""
@@ -247,43 +264,88 @@ class Database:
     async def get_random_content(self, collection_name: str) -> Optional[Dict[str, Any]]:
         """Get random content from either quotes or jokes table"""
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                db.row_factory = aiosqlite.Row
+            if self.is_postgres:
+                # PostgreSQL implementation
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
                 
                 # Get content that wasn't used in the last 7 days or was used least
-                async with db.execute(
+                cursor.execute(
                     f"""
                     SELECT * FROM {collection_name} 
                     WHERE last_used IS NULL 
-                    OR datetime(last_used) < datetime('now', '-7 days')
+                    OR last_used < NOW() - INTERVAL '7 days'
                     ORDER BY used_count ASC
                     LIMIT 10
                     """
-                ) as cursor:
-                    rows = await cursor.fetchall()
+                )
+                rows = cursor.fetchall()
+                
+                if not rows:
+                    # If no matches, get any random content
+                    cursor.execute(
+                        f"SELECT * FROM {collection_name} ORDER BY RANDOM() LIMIT 1"
+                    )
+                    rows = cursor.fetchall()
+                
+                if rows:
+                    # Pick random from results
+                    import random
+                    selected = dict(rows[random.randint(0, len(rows) - 1)])
                     
-                    if not rows:
-                        # If no matches, get any random content
-                        async with db.execute(
-                            f"SELECT * FROM {collection_name} ORDER BY RANDOM() LIMIT 1"
-                        ) as random_cursor:
-                            rows = await random_cursor.fetchall()
+                    # Update usage count
+                    cursor.execute(
+                        f"UPDATE {collection_name} SET used_count = used_count + 1, last_used = %s WHERE id = %s",
+                        (datetime.utcnow().isoformat(), selected["id"])
+                    )
+                    conn.commit()
                     
-                    if rows:
-                        # Pick random from results
-                        import random
-                        selected = dict(rows[random.randint(0, len(rows) - 1)])
+                    cursor.close()
+                    conn.close()
+                    return selected
+                
+                cursor.close()
+                conn.close()
+                return None
+            else:
+                # SQLite implementation (unchanged)
+                async with aiosqlite.connect(self.db_path) as db:
+                    db.row_factory = aiosqlite.Row
+                    
+                    # Get content that wasn't used in the last 7 days or was used least
+                    async with db.execute(
+                        f"""
+                        SELECT * FROM {collection_name} 
+                        WHERE last_used IS NULL 
+                        OR datetime(last_used) < datetime('now', '-7 days')
+                        ORDER BY used_count ASC
+                        LIMIT 10
+                        """
+                    ) as cursor:
+                        rows = await cursor.fetchall()
                         
-                        # Update usage count
-                        await db.execute(
-                            f"UPDATE {collection_name} SET used_count = used_count + 1, last_used = ? WHERE id = ?",
-                            (datetime.utcnow().isoformat(), selected["id"])
-                        )
-                        await db.commit()
+                        if not rows:
+                            # If no matches, get any random content
+                            async with db.execute(
+                                f"SELECT * FROM {collection_name} ORDER BY RANDOM() LIMIT 1"
+                            ) as random_cursor:
+                                rows = await random_cursor.fetchall()
                         
-                        return selected
-                    
-                    return None
+                        if rows:
+                            # Pick random from results
+                            import random
+                            selected = dict(rows[random.randint(0, len(rows) - 1)])
+                            
+                            # Update usage count
+                            await db.execute(
+                                f"UPDATE {collection_name} SET used_count = used_count + 1, last_used = ? WHERE id = ?",
+                                (datetime.utcnow().isoformat(), selected["id"])
+                            )
+                            await db.commit()
+                            
+                            return selected
+                        
+                        return None
         except Exception as e:
             print(f"Error getting random content: {e}")
             return None
@@ -291,13 +353,26 @@ class Database:
     async def add_quote(self, text: str, category: str = "motivational") -> int:
         """Add a new quote to the database"""
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                cursor = await db.execute(
-                    "INSERT INTO quotes (text, category, created_at, used_count) VALUES (?, ?, ?, ?)",
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO quotes (text, category, created_at, used_count) VALUES (%s, %s, %s, %s) RETURNING id",
                     (text, category, datetime.utcnow().isoformat(), 0)
                 )
-                await db.commit()
-                return cursor.lastrowid
+                lastrowid = cursor.fetchone()[0]
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return lastrowid
+            else:
+                async with aiosqlite.connect(self.db_path) as db:
+                    cursor = await db.execute(
+                        "INSERT INTO quotes (text, category, created_at, used_count) VALUES (?, ?, ?, ?)",
+                        (text, category, datetime.utcnow().isoformat(), 0)
+                    )
+                    await db.commit()
+                    return cursor.lastrowid
         except Exception as e:
             print(f"Error adding quote: {e}")
             return -1
@@ -305,13 +380,26 @@ class Database:
     async def add_joke(self, text: str, category: str = "humor") -> int:
         """Add a new joke to the database"""
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                cursor = await db.execute(
-                    "INSERT INTO jokes (text, category, created_at, used_count) VALUES (?, ?, ?, ?)",
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO jokes (text, category, created_at, used_count) VALUES (%s, %s, %s, %s) RETURNING id",
                     (text, category, datetime.utcnow().isoformat(), 0)
                 )
-                await db.commit()
-                return cursor.lastrowid
+                lastrowid = cursor.fetchone()[0]
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return lastrowid
+            else:
+                async with aiosqlite.connect(self.db_path) as db:
+                    cursor = await db.execute(
+                        "INSERT INTO jokes (text, category, created_at, used_count) VALUES (?, ?, ?, ?)",
+                        (text, category, datetime.utcnow().isoformat(), 0)
+                    )
+                    await db.commit()
+                    return cursor.lastrowid
         except Exception as e:
             print(f"Error adding joke: {e}")
             return -1
