@@ -8,8 +8,9 @@
     <div class="col-12">
         <div class="card hero-card">
             <div class="card-body p-4 p-md-5">
-                <h1 class="display-4 mb-3"><i class="fab fa-bitcoin bitcoin-icon"></i> BTCBuzzBot</h1>
-                <p class="lead mb-4">A Twitter bot that posts real-time Bitcoin price updates combined with motivational quotes and jokes to engage the crypto community.</p>
+                <h1 class="display-4 mb-3">BTCBuzzBot</h1>
+                <h2 class="subtitle">Stay Updated. Stay Motivated.</h2>
+                <p class="lead mb-4">Your BTC feed with a twist: live Bitcoin price updates combined with motivational quotes and jokes to engage the crypto community.</p>
                 <div class="d-flex flex-wrap gap-2 mt-4">
                     <a href="https://twitter.com/btcbuzzbot" class="btn btn-accent" target="_blank">
                         <i class="fab fa-twitter me-2"></i> Follow @btcbuzzbot
@@ -165,7 +166,7 @@
                         {% endfor %}
                     </div>
                     <div class="text-center mt-3">
-                        <a href="{{ url_for('posts') }}" class="btn btn-outline-accent">
+                        <a href="{{ url_for('posts') }}" class="btn btn-cta">
                             <i class="fas fa-history me-2"></i> View All Tweets
                         </a>
                     </div>

@@ -8,57 +8,25 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Price refresh functionality
-    const priceRefreshBtn = document.getElementById('refresh-price');
-    if (priceRefreshBtn) {
-        priceRefreshBtn.addEventListener('click', async function() {
-            try {
-                const response = await fetch('/api/price/refresh');
-                const data = await response.json();
-                
-                if (data.success) {
-                    const priceElement = document.getElementById('current-price');
-                    const changeElement = document.getElementById('price-change');
-                    
-                    if (priceElement) {
-                        priceElement.textContent = data.price;
-                    }
-                    
-                    if (changeElement) {
-                        changeElement.textContent = data.change;
-                        
-                        // Update price direction indicator
-                        changeElement.className = '';
-                        if (parseFloat(data.change) > 0) {
-                            changeElement.classList.add('price-up');
-                        } else if (parseFloat(data.change) < 0) {
-                            changeElement.classList.add('price-down');
-                        } else {
-                            changeElement.classList.add('price-stable');
-                        }
-                    }
-                    
-                    // Show success message
-                    showAlert('Price refreshed successfully!', 'success');
-                    
-                    // If we have a chart, update it
-                    if (window.priceChart) {
-                        updatePriceChart();
-                    }
-                } else {
-                    showAlert('Failed to refresh price: ' + data.error, 'danger');
-                }
-            } catch (error) {
-                showAlert('Error refreshing price data', 'danger');
-                console.error('Error:', error);
-            }
+    const refreshButton = document.getElementById('refresh-price');
+    if (refreshButton) {
+        refreshButton.addEventListener('click', function() {
+            refreshBitcoinPrice();
         });
     }
 
-    // Initialize price history chart if container exists
-    const chartContainer = document.getElementById('price-chart');
-    if (chartContainer) {
-        initPriceChart();
+    // Initialize price history chart if the element exists
+    const chartCanvas = document.getElementById('price-chart');
+    if (chartCanvas) {
+        initializePriceChart();
     }
+
+    // Auto-refresh price every 5 minutes
+    setInterval(function() {
+        if (document.getElementById('current-price')) {
+            refreshBitcoinPrice(false); // Silent refresh
+        }
+    }, 300000); // 5 minutes
 
     // Toggle tweet scheduler
     const schedulerToggle = document.getElementById('scheduler-toggle');
@@ -94,15 +62,88 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Initialize price chart
-function initPriceChart() {
-    fetch('/api/price/history')
+/**
+ * Refresh Bitcoin price via API
+ * @param {boolean} showAnimation - Whether to show loading animation
+ */
+function refreshBitcoinPrice(showAnimation = true) {
+    const priceElement = document.getElementById('current-price');
+    const changeElement = document.getElementById('price-change');
+    const refreshButton = document.getElementById('refresh-price');
+    
+    if (!priceElement || !refreshButton) return;
+    
+    if (showAnimation) {
+        refreshButton.classList.add('refreshing');
+        refreshButton.disabled = true;
+    }
+    
+    fetch('/api/price/refresh')
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                createPriceChart(data.prices);
+                // Update price display with animation
+                priceElement.innerHTML = data.price;
+                
+                // Determine and update price change display
+                if (changeElement) {
+                    const changeValue = parseFloat(data.change);
+                    let changeClass = 'price-stable';
+                    let changeIcon = 'fa-minus';
+                    
+                    if (changeValue > 0) {
+                        changeClass = 'price-up';
+                        changeIcon = 'fa-arrow-up';
+                    } else if (changeValue < 0) {
+                        changeClass = 'price-down';
+                        changeIcon = 'fa-arrow-down';
+                    }
+                    
+                    changeElement.className = changeClass;
+                    changeElement.innerHTML = `<i class="fas ${changeIcon} me-1"></i>${data.change}`;
+                }
+                
+                // Apply fade-in animation
+                priceElement.classList.add('fade-in');
+                setTimeout(() => {
+                    priceElement.classList.remove('fade-in');
+                }, 500);
+                
+                // Reload chart if it exists
+                const chartCanvas = document.getElementById('price-chart');
+                if (chartCanvas && window.priceChart) {
+                    initializePriceChart();
+                }
             } else {
-                console.error('Failed to get price history:', data.error);
+                console.error('Error refreshing price:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching price data:', error);
+        })
+        .finally(() => {
+            if (showAnimation) {
+                refreshButton.classList.remove('refreshing');
+                refreshButton.disabled = false;
+            }
+        });
+}
+
+/**
+ * Initialize Bitcoin price history chart
+ */
+function initializePriceChart() {
+    fetch('/api/price/history')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.prices && data.prices.length > 0) {
+                renderPriceChart(data.prices);
+            } else {
+                console.log('No price history data available');
+                const chartContainer = document.querySelector('.chart-container');
+                if (chartContainer) {
+                    chartContainer.innerHTML = '<div class="alert alert-info text-center my-5"><i class="fas fa-info-circle me-2"></i> No price history data available yet.</div>';
+                }
             }
         })
         .catch(error => {
@@ -110,70 +151,127 @@ function initPriceChart() {
         });
 }
 
-// Create price chart with Chart.js
-function createPriceChart(priceData) {
+/**
+ * Render price history chart with Chart.js
+ * @param {Array} priceData - Array of price objects
+ */
+function renderPriceChart(priceData) {
     const ctx = document.getElementById('price-chart').getContext('2d');
     
-    const labels = priceData.map(item => new Date(item.timestamp).toLocaleDateString());
+    // Format data for Chart.js
+    const timestamps = priceData.map(item => {
+        const date = new Date(item.timestamp);
+        return date.toLocaleString('en-US', { 
+            month: 'short', 
+            day: 'numeric',
+            hour: 'numeric', 
+            minute: 'numeric'
+        });
+    });
+    
     const prices = priceData.map(item => item.price);
     
+    // Destroy existing chart if it exists
+    if (window.priceChart) {
+        window.priceChart.destroy();
+    }
+    
+    // Create gradient fill
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(247, 147, 26, 0.4)');
+    gradient.addColorStop(1, 'rgba(247, 147, 26, 0.0)');
+    
+    // Create new chart
     window.priceChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: labels,
+            labels: timestamps,
             datasets: [{
                 label: 'Bitcoin Price (USD)',
                 data: prices,
-                fill: false,
-                borderColor: '#f7931a',
-                tension: 0.1,
-                pointBackgroundColor: '#f7931a',
-                pointRadius: 3
+                backgroundColor: gradient,
+                borderColor: '#F7931A',
+                borderWidth: 2,
+                pointBackgroundColor: '#F7931A',
+                pointBorderColor: '#fff',
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                tension: 0.3,
+                fill: true
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: false,
-                    ticks: {
-                        callback: function(value) {
-                            return '$' + value.toLocaleString();
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        color: '#F1F5F9',
+                        font: {
+                            family: "'Inter', sans-serif",
+                            size: 12
+                        }
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                    titleColor: '#F1F5F9',
+                    bodyColor: '#F1F5F9',
+                    borderColor: '#334155',
+                    borderWidth: 1,
+                    padding: 12,
+                    displayColors: false,
+                    callbacks: {
+                        label: function(context) {
+                            return `$${context.raw.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                         }
                     }
                 }
             },
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return '$' + context.raw.toLocaleString();
+            scales: {
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)',
+                        drawBorder: false
+                    },
+                    ticks: {
+                        color: '#94A3B8',
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                },
+                y: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.05)',
+                        drawBorder: false
+                    },
+                    ticks: {
+                        color: '#94A3B8',
+                        callback: function(value) {
+                            return '$' + value.toLocaleString('en-US');
                         }
                     }
                 }
+            },
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+            elements: {
+                point: {
+                    radius: prices.length > 30 ? 0 : 3
+                }
+            },
+            animation: {
+                duration: 1000,
+                easing: 'easeOutQuart'
             }
         }
     });
-}
-
-// Update price chart with new data
-function updatePriceChart() {
-    fetch('/api/price/history')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && window.priceChart) {
-                const labels = data.prices.map(item => new Date(item.timestamp).toLocaleDateString());
-                const prices = data.prices.map(item => item.price);
-                
-                window.priceChart.data.labels = labels;
-                window.priceChart.data.datasets[0].data = prices;
-                window.priceChart.update();
-            }
-        })
-        .catch(error => {
-            console.error('Error updating price chart:', error);
-        });
 }
 
 // Display alert messages

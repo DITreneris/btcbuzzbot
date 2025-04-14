@@ -3,22 +3,24 @@
 /* Import Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Roboto:wght@300;400;500&family=Inter:wght@400;500;600;700&display=swap');
 
-/* Global Styles & Color Palette */
+/* Main Color Variables */
 :root {
-  /* New Modern Color Palette */
-  --primary: #1E2A38;         /* Deep navy */
-  --primary-dark: #16202B;    /* Darker navy */
-  --primary-light: #2C3E50;   /* Lighter navy */
-  --accent: #F9B917;          /* Golden yellow - Bitcoin color */
-  --secondary: #E4E7EB;       /* Cool gray */
-  --background: #F8F9FA;      /* Soft white background */
-  --success: #10B981;         /* Bold green */
-  --danger: #EF4444;          /* Red */
-  --warning: #F59E0B;         /* Orange/amber */
-  --info: #3B82F6;            /* Blue */
-  --text-primary: #1E293B;    /* Dark text */
-  --text-secondary: #64748B;  /* Medium gray text */
-  --text-light: #94A3B8;      /* Light gray text */
+  --primary: #111827;
+  --primary-dark: #0F172A;
+  --primary-light: #1E2A38;
+  --accent: #F7931A;
+  --accent-hover: #E87D10;
+  --text-light: #F1F5F9;
+  --text-muted: #94A3B8;
+  --background: #0F172A;
+  --card-bg: #1E293B;
+  --border-color: #334155;
+  --success: #10B981;
+  --danger: #EF4444;
+  --warning: #F59E0B;
+  --info: #3B82F6;
+  --cta: #2563EB;
+  --cta-hover: #1D4ED8;
   
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -44,12 +46,10 @@
 
 /* Base Styles */
 body {
-  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-weight: 400;
-  font-size: 16px;
-  line-height: 1.6;
-  color: var(--text-primary);
+  font-family: 'Inter', 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--background);
+  color: var(--text-light);
+  line-height: 1.6;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -57,16 +57,16 @@ body {
 
 /* Typography */
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  font-weight: 600;
+  font-family: 'Poppins', 'Inter', sans-serif;
+  font-weight: 700;
+  color: var(--text-light);
+  text-shadow: 0px 1px 2px rgba(0,0,0,0.4);
   line-height: 1.3;
   margin-bottom: var(--spacing-md);
-  color: var(--primary);
 }
 
 h1 {
   font-size: 2rem; /* 32px */
-  font-weight: 700;
 }
 
 h2 {
@@ -86,8 +86,9 @@ p {
 }
 
 .lead {
-  font-size: 1.125rem;
-  font-weight: 300;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 1.1rem;
 }
 
 .text-small {
@@ -105,26 +106,23 @@ main {
 }
 
 .card {
-  background: #fff;
-  border: none;
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
   margin-bottom: var(--spacing-lg);
-  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .card:hover {
-  box-shadow: var(--shadow-md);
+  transform: translateY(-5px);
+  box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
 }
 
 .card-header {
-  background-color: #fff;
-  border-bottom: 1px solid var(--secondary);
-  padding: var(--spacing-md) var(--spacing-lg);
-  display: flex;
-  align-items: center;
-  border-top-left-radius: var(--radius);
-  border-top-right-radius: var(--radius);
+  border-bottom: 1px solid var(--border-color);
+  padding: 1rem 1.5rem;
+  font-weight: 600;
 }
 
 .card-header i {
@@ -144,25 +142,28 @@ main {
 
 /* Header and Navigation */
 .navbar {
-  background-color: var(--primary) !important;
-  box-shadow: var(--shadow);
+  background-color: var(--primary-dark);
+  border-bottom: 1px solid var(--border-color);
   padding: var(--spacing-md) 0;
 }
 
 .navbar-brand {
-  font-family: 'Poppins', 'Inter', sans-serif;
   font-weight: 700;
-  font-size: 1.4rem;
+  color: var(--text-light);
+}
+
+.navbar-brand .bitcoin-icon {
+  margin-right: 0.5rem;
 }
 
 .nav-link {
+  color: var(--text-muted);
   font-weight: 500;
-  padding: var(--spacing-sm) var(--spacing-md) !important;
-  transition: all 0.2s;
+  transition: color 0.2s;
 }
 
 .nav-link:hover {
-  color: var(--accent) !important;
+  color: var(--text-light);
 }
 
 /* Bitcoin accent elements */
@@ -172,35 +173,53 @@ main {
 
 /* Dashboard */
 .hero-card {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
-  color: white;
-  box-shadow: var(--shadow-lg);
+  background: linear-gradient(145deg, #202836, #263043);
   border: none;
+  padding: 0;
   overflow: hidden;
   position: relative;
 }
 
-.hero-card::after {
+.hero-card::before {
   content: '';
   position: absolute;
-  right: -50px;
-  top: -50px;
-  width: 200px;
-  height: 200px;
-  background: rgba(249, 185, 23, 0.15);
-  border-radius: 50%;
+  top: 0;
+  right: 0;
+  width: 35%;
+  height: 100%;
+  background: url('/static/img/bitcoin-pattern.png');
+  background-size: cover;
+  opacity: 0.1;
   z-index: 0;
 }
 
 .hero-card .card-body {
-  position: relative;
   z-index: 1;
+  position: relative;
+}
+
+.hero-card h1 {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.hero-card .lead {
+  max-width: 80%;
+  margin-bottom: 2rem;
+  font-size: 1.25rem;
+  color: var(--text-light);
+  opacity: 0.9;
+}
+
+.hero-card .subtitle {
+  font-weight: 600;
+  font-size: 1.4rem;
+  color: var(--accent);
+  margin-bottom: 1.5rem;
 }
 
 .price-card {
-  border: none;
   border-left: 4px solid var(--accent);
-  transition: transform 0.3s, box-shadow 0.3s;
 }
 
 .price-card:hover {
@@ -210,72 +229,87 @@ main {
 
 .price-up {
   color: var(--success);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .price-down {
   color: var(--danger);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .price-stable {
-  color: var(--text-secondary);
-  font-weight: 500;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 /* Bitcoin price history chart */
 .chart-container {
+  width: 100%;
   height: 300px;
-  margin: var(--spacing-lg) 0;
+  padding: 1rem;
   background: white;
   border-radius: var(--radius);
-  padding: var(--spacing-md);
   box-shadow: var(--shadow-sm);
 }
 
 /* Tweet styles */
 .tweet-card {
-  border-radius: var(--radius);
-  margin-bottom: var(--spacing-md);
-  transition: all 0.2s;
-  box-shadow: var(--shadow-sm);
-  border: none;
+  background-color: var(--primary-dark);
+  border-radius: 12px;
+  padding: 1.25rem;
+  height: 100%;
+  border: 1px solid var(--border-color);
+  transition: transform 0.3s ease;
 }
 
 .tweet-card:hover {
-  box-shadow: var(--shadow);
+  transform: translateY(-5px);
 }
 
 .tweet-header {
   display: flex;
   align-items: center;
-  padding: var(--spacing-md);
-  border-bottom: 1px solid var(--secondary);
+  margin-bottom: 1rem;
 }
 
 .tweet-avatar {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  margin-right: var(--spacing-md);
-  object-fit: cover;
-  box-shadow: var(--shadow-sm);
+  margin-right: 1rem;
+  overflow: hidden;
+  border: 2px solid var(--accent);
 }
 
-.tweet-info {
-  flex: 1;
+.tweet-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tweet-info h5 {
+  margin-bottom: 0.25rem;
 }
 
 .tweet-content {
-  padding: var(--spacing-md);
-  font-size: 1.1rem;
+  margin-bottom: 1rem;
+  line-height: 1.5;
 }
 
 .tweet-actions {
-  color: var(--text-secondary);
-  padding: 0 var(--spacing-md) var(--spacing-md);
   display: flex;
-  gap: var(--spacing-md);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.tweet-actions span {
+  margin-right: 1rem;
+  display: flex;
+  align-items: center;
+}
+
+.tweet-actions span i {
+  margin-right: 0.5rem;
 }
 
 /* Admin panel */
@@ -285,17 +319,31 @@ main {
   border-top: 3px solid var(--accent);
 }
 
+.form-control {
+  background-color: var(--primary-dark);
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+  border-radius: 8px;
+}
+
 .form-control:focus {
+  background-color: var(--primary-dark);
   border-color: var(--accent);
-  box-shadow: 0 0 0 0.25rem rgba(249, 185, 23, 0.25);
+  color: var(--text-light);
+  box-shadow: 0 0 0 0.25rem rgba(247, 147, 26, 0.25);
+}
+
+.form-label {
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 /* Buttons */
 .btn {
-  font-weight: 500;
+  border-radius: 8px;
+  font-weight: 600;
   padding: 0.5rem 1.25rem;
-  border-radius: var(--radius);
-  transition: all 0.2s;
+  transition: all 0.25s ease;
 }
 
 .btn-primary {
@@ -312,69 +360,92 @@ main {
 .btn-accent {
   background-color: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: #fff;
 }
 
 .btn-accent:hover {
-  background-color: #E6A515;
-  border-color: #E6A515;
-  color: white;
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+  transform: translateY(-2px);
 }
 
-.btn-outline-accent {
-  border-color: var(--accent);
-  color: var(--accent);
+.btn-cta {
+  background-color: var(--cta);
+  border-color: var(--cta);
+  color: #fff;
 }
 
-.btn-outline-accent:hover {
-  background-color: var(--accent);
-  color: white;
+.btn-cta:hover {
+  background-color: var(--cta-hover);
+  border-color: var(--cta-hover);
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.btn-outline-light {
+  border-color: var(--text-muted);
+  color: var(--text-light);
+}
+
+.btn-outline-light:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-light);
+  transform: translateY(-2px);
 }
 
 /* Stats Cards */
 .stat-card {
+  padding: 1rem;
   text-align: center;
-  padding: var(--spacing-md);
-  border-radius: var(--radius);
-  background: white;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.2s, box-shadow 0.2s;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  height: 100%;
+  transition: all 0.3s ease;
 }
 
 .stat-card:hover {
+  background: rgba(255,255,255,0.1);
   transform: translateY(-3px);
-  box-shadow: var(--shadow);
 }
 
 .stat-number {
   font-size: 2rem;
   font-weight: 700;
-  font-family: 'Poppins', 'Inter', sans-serif;
-  color: var(--primary);
+  color: var(--text-light);
+  margin-bottom: 0.25rem;
 }
 
 .stat-label {
+  color: var(--text-muted);
   font-size: 0.875rem;
-  color: var(--text-secondary);
-  margin-top: var(--spacing-xs);
 }
 
 /* Footer */
 footer {
   margin-top: auto;
-  background-color: var(--primary);
-  color: white;
-  padding: var(--spacing-xl) 0;
+  background-color: var(--primary-dark);
+  border-top: 1px solid var(--border-color);
+  padding: 2rem 0 1rem;
 }
 
 footer h5 {
-  color: white;
+  color: var(--text-light);
   font-weight: 600;
-  margin-bottom: var(--spacing-md);
+  margin-bottom: 1.25rem;
+}
+
+footer ul {
+  padding-left: 0;
+  list-style: none;
+}
+
+footer ul li {
+  margin-bottom: 0.75rem;
 }
 
 footer a {
-  color: var(--secondary);
+  color: var(--text-muted);
   text-decoration: none;
   transition: color 0.2s;
 }
@@ -382,10 +453,6 @@ footer a {
 footer a:hover {
   color: var(--accent);
   text-decoration: none;
-}
-
-footer hr {
-  border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* Health status indicator */
@@ -416,25 +483,55 @@ footer hr {
   border-radius: var(--radius-sm);
 }
 
+/* Login page */
+.login-card {
+  max-width: 450px;
+  margin: 5rem auto;
+}
+
+.login-card .card-header {
+  background-color: transparent;
+  border-bottom: 1px solid var(--border-color);
+  text-align: center;
+}
+
+/* Refresh animation */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.refreshing i {
+  animation: spin 1s linear infinite;
+}
+
 /* Responsive adjustments */
-@media (max-width: 768px) {
-  .chart-container {
-    height: 220px;
+@media (max-width: 767.98px) {
+  .hero-card h1 {
+    font-size: 2.25rem;
   }
   
-  h1 {
-    font-size: 1.75rem;
+  .hero-card .lead {
+    max-width: 100%;
+    font-size: 1.1rem;
   }
   
-  h2 {
-    font-size: 1.35rem;
-  }
-  
-  .card-body {
-    padding: var(--spacing-md);
+  #current-price {
+    font-size: 2.25rem;
   }
   
   .stat-number {
     font-size: 1.5rem;
   }
+}
+
+/* Animations */
+.fade-in {
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+} 
 } 
