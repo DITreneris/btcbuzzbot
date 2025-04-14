@@ -527,23 +527,32 @@ def control_bot(action):
         message = 'Manual tweet triggered'
         status = 'Running'
         
-        # Try to import and use simple_tweet (latest version)
+        # Try to import and use the fixed_tweet module
         try:
-            print("\n*** TWEET ATTEMPT VIA SIMPLE_TWEET ***")
-            import simple_tweet
-            if simple_tweet.post_tweet():
-                message = "Tweet posted successfully using simple_tweet module!"
+            print("\n*** TWEET ATTEMPT VIA FIXED_TWEET MODULE ***")
+            import fixed_tweet
+            if fixed_tweet.post_tweet():
+                message = "Tweet posted successfully!"
                 status = 'Running'
             else:
-                message = "Failed to post tweet"
-                status = 'Error'
+                # If fixed_tweet fails, try with heroku_tweet_debug
+                try:
+                    print("\n*** TRYING HEROKU_TWEET_DEBUG MODULE ***")
+                    import heroku_tweet_debug
+                    heroku_tweet_debug.main()
+                    message = "Tweet debugger executed - check logs"
+                    status = 'Running'
+                except Exception as e2:
+                    print(f"Error in heroku_tweet_debug: {e2}")
+                    message = "Failed to post tweet"
+                    status = 'Error'
                 
         except Exception as e:
             print(f"Error in tweet_now action: {e}")
-            message = f"Error posting tweet: {str(e)}"
-            status = 'Error'
             import traceback
             traceback.print_exc()
+            message = f"Error posting tweet: {str(e)}"
+            status = 'Error'
             
     elif action == 'seed_prices':
         # Seed the database with 7 days of price data for testing
