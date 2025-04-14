@@ -1,0 +1,553 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="text-accent">LLM Integration Admin</h1>
+            <p class="lead">Manage Ollama LLM integration for enhanced content generation</p>
+        </div>
+        <div class="col-md-4 text-md-end">
+            <a href="{{ url_for('admin_panel') }}" class="btn btn-outline-light">
+                <i class="fas fa-arrow-left"></i> Back to Main Admin
+            </a>
+        </div>
+    </div>
+
+    {% if error_message %}
+    <div class="alert alert-danger" role="alert">
+        <h4 class="alert-heading">LLM Integration Unavailable</h4>
+        <p>{{ error_message }}</p>
+        <hr>
+        <p class="mb-0">
+            Please make sure Ollama is installed and running locally, and that the BTCBuzzBot server has access to it.
+            Check the server logs for more details.
+        </p>
+    </div>
+    {% endif %}
+
+    {% if llm_enabled %}
+    <div class="row">
+        <!-- LLM Status Card -->
+        <div class="col-md-4">
+            <div class="card bg-dark text-white mb-4">
+                <div class="card-header">
+                    <h5 class="card-title">LLM Status</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <span class="text-success">
+                            <i class="fas fa-check-circle"></i> Ollama Connected
+                        </span>
+                    </div>
+                    <div class="mb-3">
+                        <strong>Current Model:</strong> 
+                        <span class="text-accent">{{ current_model }}</span>
+                    </div>
+                    <div class="mb-3">
+                        <strong>Available Templates:</strong> 
+                        <span class="text-accent">{{ templates|length }}</span>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <button class="btn btn-sm btn-outline-light" id="refreshStatus">
+                        <i class="fas fa-sync"></i> Refresh Status
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Model Selection Card -->
+        <div class="col-md-8">
+            <div class="card bg-dark text-white mb-4">
+                <div class="card-header">
+                    <h5 class="card-title">LLM Model Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <form id="modelForm">
+                        <div class="mb-3">
+                            <label for="modelSelect" class="form-label">Select Model</label>
+                            <select class="form-select bg-dark text-white" id="modelSelect">
+                                {% for model in models %}
+                                <option value="{{ model }}" {% if model == current_model %}selected{% endif %}>
+                                    {{ model }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Change Model
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Template Management Card -->
+        <div class="col-md-12">
+            <div class="card bg-dark text-white mb-4">
+                <div class="card-header">
+                    <h5 class="card-title">Prompt Templates</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-dark">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Purpose</th>
+                                    <th>Last Used</th>
+                                    <th>Performance</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for template in templates %}
+                                <tr>
+                                    <td>{{ template.id }}</td>
+                                    <td>{{ template.name }}</td>
+                                    <td>{{ template.purpose }}</td>
+                                    <td>{{ template.last_used or 'Never' }}</td>
+                                    <td>
+                                        {% if template.performance_score %}
+                                        <div class="progress">
+                                            <div class="progress-bar bg-success" role="progressbar" 
+                                                style="width: {{ template.performance_score * 100 }}%" 
+                                                aria-valuenow="{{ template.performance_score * 100 }}" 
+                                                aria-valuemin="0" aria-valuemax="100">
+                                                {{ "%.2f"|format(template.performance_score * 100) }}%
+                                            </div>
+                                        </div>
+                                        {% else %}
+                                        Not rated
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-light view-template" 
+                                                data-template-id="{{ template.id }}">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-warning edit-template" 
+                                                data-template-id="{{ template.id }}">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger delete-template" 
+                                                data-template-id="{{ template.id }}">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <button class="btn btn-success" id="newTemplateBtn">
+                        <i class="fas fa-plus"></i> New Template
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Content Generation Test Card -->
+        <div class="col-md-12">
+            <div class="card bg-dark text-white mb-4">
+                <div class="card-header">
+                    <h5 class="card-title">Test Content Generation</h5>
+                </div>
+                <div class="card-body">
+                    <form id="generateForm">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="contentType" class="form-label">Content Type</label>
+                                <select class="form-select bg-dark text-white" id="contentType">
+                                    <option value="price_update">Price Update</option>
+                                    <option value="joke">Crypto Joke</option>
+                                    <option value="motivation">Motivational Content</option>
+                                    <option value="custom">Custom (Template)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6" id="templateSelectContainer" style="display: none;">
+                                <label for="templateSelect" class="form-label">Template</label>
+                                <select class="form-select bg-dark text-white" id="templateSelect">
+                                    {% for template in templates %}
+                                    <option value="{{ template.id }}">{{ template.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label for="btcPrice" class="form-label">BTC Price ($)</label>
+                                <input type="number" class="form-control bg-dark text-white" id="btcPrice" 
+                                      value="{{ stats.latest_price|default(45000) }}">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="priceChange" class="form-label">24h Change (%)</label>
+                                <input type="number" step="0.01" class="form-control bg-dark text-white" id="priceChange" 
+                                      value="2.5">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="marketTrend" class="form-label">Market Trend</label>
+                                <select class="form-select bg-dark text-white" id="marketTrend">
+                                    <option value="bullish">Bullish</option>
+                                    <option value="bearish">Bearish</option>
+                                    <option value="neutral">Neutral</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="temperature" class="form-label">Temperature (0.1-1.0)</label>
+                                <input type="range" class="form-range" min="0.1" max="1.0" step="0.1" id="temperature" value="0.7">
+                                <div class="text-center" id="temperatureValue">0.7</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="maxTokens" class="form-label">Max Tokens</label>
+                                <input type="number" class="form-control bg-dark text-white" id="maxTokens" value="280">
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-magic"></i> Generate Content
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div class="mt-4" id="generationResult" style="display: none;">
+                        <h5>Generated Content:</h5>
+                        <div class="alert alert-dark text-white" id="generatedContent"></div>
+                        <div>
+                            <strong>Generation Time:</strong> <span id="generationTime"></span>s
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Template Modal -->
+    <div class="modal fade" id="templateModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content bg-dark text-white">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="templateModalTitle">Template</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="templateForm">
+                        <input type="hidden" id="templateId">
+                        <div class="mb-3">
+                            <label for="templateName" class="form-label">Template Name</label>
+                            <input type="text" class="form-control bg-dark text-white" id="templateName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="templatePurpose" class="form-label">Purpose</label>
+                            <input type="text" class="form-control bg-dark text-white" id="templatePurpose" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="templateContent" class="form-label">Template Content</label>
+                            <textarea class="form-control bg-dark text-white" id="templateContent" rows="10" required></textarea>
+                            <div class="form-text text-light">
+                                Use {placeholder} syntax for dynamic content (e.g., {price}, {market_trend})
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" id="saveTemplate">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Show/hide template select based on content type
+    $('#contentType').change(function() {
+        if ($(this).val() === 'custom') {
+            $('#templateSelectContainer').show();
+        } else {
+            $('#templateSelectContainer').hide();
+        }
+    });
+
+    // Update temperature value display
+    $('#temperature').on('input', function() {
+        $('#temperatureValue').text($(this).val());
+    });
+
+    // Generate content form submission
+    $('#generateForm').submit(function(e) {
+        e.preventDefault();
+        
+        const contentType = $('#contentType').val();
+        const btcPrice = parseFloat($('#btcPrice').val());
+        const priceChange = parseFloat($('#priceChange').val());
+        const marketTrend = $('#marketTrend').val();
+        const temperature = parseFloat($('#temperature').val());
+        const maxTokens = parseInt($('#maxTokens').val());
+        
+        let data = {
+            content_type: contentType,
+            context: {
+                price: btcPrice,
+                change_pct: priceChange,
+                market_trend: marketTrend
+            },
+            parameters: {
+                temperature: temperature,
+                max_tokens: maxTokens
+            }
+        };
+        
+        // Add template ID if custom content type
+        if (contentType === 'custom') {
+            data.template_id = parseInt($('#templateSelect').val());
+        }
+        
+        // Show loading state
+        $(this).find('button[type="submit"]').html('<i class="fas fa-spinner fa-spin"></i> Generating...');
+        $(this).find('button[type="submit"]').prop('disabled', true);
+        
+        // Call API
+        $.ajax({
+            url: '/api/v1/generate',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                if (response.success) {
+                    $('#generatedContent').text(response.content);
+                    $('#generationTime').text(response.metadata.generation_time.toFixed(2));
+                    $('#generationResult').show();
+                } else {
+                    alert('Error: ' + response.error);
+                }
+            },
+            error: function(xhr) {
+                let errorMsg = 'Failed to generate content';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMsg += ': ' + xhr.responseJSON.error;
+                }
+                alert(errorMsg);
+            },
+            complete: function() {
+                // Reset button state
+                $('#generateForm').find('button[type="submit"]').html('<i class="fas fa-magic"></i> Generate Content');
+                $('#generateForm').find('button[type="submit"]').prop('disabled', false);
+            }
+        });
+    });
+
+    // Template viewing
+    $('.view-template').click(function() {
+        const templateId = $(this).data('template-id');
+        
+        $.ajax({
+            url: `/api/v1/templates/${templateId}`,
+            type: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    // Populate modal
+                    $('#templateId').val(response.template.id);
+                    $('#templateName').val(response.template.name);
+                    $('#templatePurpose').val(response.template.purpose);
+                    $('#templateContent').val(response.template.template);
+                    
+                    // Set fields readonly
+                    $('#templateName').prop('readonly', true);
+                    $('#templatePurpose').prop('readonly', true);
+                    $('#templateContent').prop('readonly', true);
+                    
+                    // Hide save button
+                    $('#saveTemplate').hide();
+                    
+                    // Set modal title
+                    $('#templateModalTitle').text('View Template');
+                    
+                    // Show modal
+                    $('#templateModal').modal('show');
+                } else {
+                    alert('Error: ' + response.error);
+                }
+            },
+            error: function() {
+                alert('Failed to load template');
+            }
+        });
+    });
+
+    // Template editing
+    $('.edit-template').click(function() {
+        const templateId = $(this).data('template-id');
+        
+        $.ajax({
+            url: `/api/v1/templates/${templateId}`,
+            type: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    // Populate modal
+                    $('#templateId').val(response.template.id);
+                    $('#templateName').val(response.template.name);
+                    $('#templatePurpose').val(response.template.purpose);
+                    $('#templateContent').val(response.template.template);
+                    
+                    // Enable fields
+                    $('#templateName').prop('readonly', false);
+                    $('#templatePurpose').prop('readonly', false);
+                    $('#templateContent').prop('readonly', false);
+                    
+                    // Show save button
+                    $('#saveTemplate').show();
+                    
+                    // Set modal title
+                    $('#templateModalTitle').text('Edit Template');
+                    
+                    // Show modal
+                    $('#templateModal').modal('show');
+                } else {
+                    alert('Error: ' + response.error);
+                }
+            },
+            error: function() {
+                alert('Failed to load template');
+            }
+        });
+    });
+
+    // New template
+    $('#newTemplateBtn').click(function() {
+        // Clear form
+        $('#templateId').val('');
+        $('#templateName').val('');
+        $('#templatePurpose').val('');
+        $('#templateContent').val('');
+        
+        // Enable fields
+        $('#templateName').prop('readonly', false);
+        $('#templatePurpose').prop('readonly', false);
+        $('#templateContent').prop('readonly', false);
+        
+        // Show save button
+        $('#saveTemplate').show();
+        
+        // Set modal title
+        $('#templateModalTitle').text('New Template');
+        
+        // Show modal
+        $('#templateModal').modal('show');
+    });
+
+    // Save template
+    $('#saveTemplate').click(function() {
+        // Validate form
+        if (!$('#templateName').val() || !$('#templatePurpose').val() || !$('#templateContent').val()) {
+            alert('Please fill in all fields');
+            return;
+        }
+        
+        const templateId = $('#templateId').val();
+        const isNew = !templateId;
+        
+        const data = {
+            name: $('#templateName').val(),
+            purpose: $('#templatePurpose').val(),
+            template: $('#templateContent').val()
+        };
+        
+        // Create or update template
+        $.ajax({
+            url: isNew ? '/api/v1/templates' : `/api/v1/templates/${templateId}`,
+            type: isNew ? 'POST' : 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            success: function(response) {
+                if (response.success) {
+                    // Close modal
+                    $('#templateModal').modal('hide');
+                    
+                    // Refresh page
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.error);
+                }
+            },
+            error: function() {
+                alert('Failed to save template');
+            }
+        });
+    });
+
+    // Delete template
+    $('.delete-template').click(function() {
+        if (!confirm('Are you sure you want to delete this template?')) {
+            return;
+        }
+        
+        const templateId = $(this).data('template-id');
+        
+        $.ajax({
+            url: `/api/v1/templates/${templateId}`,
+            type: 'DELETE',
+            success: function(response) {
+                if (response.success) {
+                    // Refresh page
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.error);
+                }
+            },
+            error: function() {
+                alert('Failed to delete template');
+            }
+        });
+    });
+
+    // Change model
+    $('#modelForm').submit(function(e) {
+        e.preventDefault();
+        
+        const model = $('#modelSelect').val();
+        
+        $.ajax({
+            url: '/api/v1/models/current',
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify({ model: model }),
+            success: function(response) {
+                if (response.success) {
+                    alert('Model changed successfully to ' + response.current_model);
+                } else {
+                    alert('Error: ' + response.error);
+                }
+            },
+            error: function() {
+                alert('Failed to change model');
+            }
+        });
+    });
+
+    // Refresh status
+    $('#refreshStatus').click(function() {
+        location.reload();
+    });
+});
+</script>
+{% endblock %} 

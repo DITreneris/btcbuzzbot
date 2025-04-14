@@ -117,7 +117,7 @@
     <div class="card-body">
         <div class="row g-3">
             <!-- Tweet Now Button -->
-            <div class="col-lg-4 col-md-6">
+            <div class="col-lg-3 col-md-6">
                 <div class="d-grid">
                     <form action="{{ url_for('control_bot', action='tweet_now') }}" method="post">
                         <button type="submit" class="btn btn-accent w-100">
@@ -127,7 +127,7 @@
                 </div>
             </div>
             <!-- Start/Stop Buttons -->
-            <div class="col-lg-4 col-md-6">
+            <div class="col-lg-3 col-md-6">
                 <div class="d-grid">
                     {% if bot_status.status == 'Running' %}
                         <form action="{{ url_for('control_bot', action='stop') }}" method="post">
@@ -145,13 +145,21 @@
                 </div>
             </div>
             <!-- Seed Price Data Button -->
-            <div class="col-lg-4 col-md-6">
+            <div class="col-lg-3 col-md-6">
                 <div class="d-grid">
                     <form action="{{ url_for('control_bot', action='seed_prices') }}" method="post">
                         <button type="submit" class="btn btn-info w-100">
                             <i class="fas fa-chart-line me-2"></i> Seed Price Data
                         </button>
                     </form>
+                </div>
+            </div>
+            <!-- LLM Admin Button -->
+            <div class="col-lg-3 col-md-6">
+                <div class="d-grid">
+                    <a href="{{ url_for('llm_admin') }}" class="btn btn-primary w-100">
+                        <i class="fas fa-robot me-2"></i> LLM Admin
+                    </a>
                 </div>
             </div>
         </div>
