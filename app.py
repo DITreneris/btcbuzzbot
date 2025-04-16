@@ -462,6 +462,7 @@ def post_tweet():
     try:
         # Import dynamically to avoid circular imports
         import importlib.util
+        import traceback
         module_name = 'direct_tweet_fixed'
         spec = importlib.util.spec_from_file_location(module_name, f"{module_name}.py")
         tweet_module = importlib.util.module_from_spec(spec)
@@ -503,7 +504,8 @@ def post_tweet():
                         quote = "Test quote - hodl to the moon! 🚀"
                 else:
                     quote = "Test quote - bitcoin fixes this! 🧠"
-            except:
+            except Exception as template_error:
+                print(f"Error loading templates: {template_error}")
                 quote = "Test quote - not your keys, not your coins! 🔑"
             
             # Format the tweet
@@ -553,7 +555,24 @@ def post_tweet():
                 return False, {'error': 'Failed to log simulated tweet to database'}
         else:
             # Normal mode - actually post to Twitter
-            result = tweet_module.post_tweet()
+            try:
+                result = tweet_module.post_tweet()
+                
+                if not result:
+                    # Check if there's an error message in the database
+                    with get_db_connection() as conn:
+                        error_status = conn.execute(
+                            "SELECT message FROM bot_status WHERE status = 'Error' ORDER BY timestamp DESC LIMIT 1"
+                        ).fetchone()
+                        
+                        if error_status:
+                            return False, {'error': error_status[0]}
+                        else:
+                            return False, {'error': 'Failed to post tweet - unknown error'}
+            except Exception as tweet_error:
+                print(f"Exception during tweet_module.post_tweet(): {tweet_error}")
+                print(traceback.format_exc())
+                return False, {'error': f'Exception during tweet: {str(tweet_error)}'}
         
         if result:
             # Get the most recent tweet to get its ID

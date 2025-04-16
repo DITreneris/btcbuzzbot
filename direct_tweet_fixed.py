@@ -315,34 +315,83 @@ def post_tweet():
         missing_creds = [k for k, v in twitter_creds.items() if not v]
         if missing_creds:
             print(f"ERROR: Missing Twitter credentials: {', '.join(missing_creds)}")
+            # Log the error to the database
+            try:
+                error_conn = sqlite3.connect("btcbuzzbot.db")
+                current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                error_conn.execute(
+                    'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+                    (current_timestamp, 'Error', f'Missing Twitter credentials: {", ".join(missing_creds)}')
+                )
+                error_conn.commit()
+                error_conn.close()
+            except Exception as db_error:
+                print(f"Failed to log credential error: {db_error}")
             return False
             
         # Connect to the database and get the current BTC price
         conn = sqlite3.connect("btcbuzzbot.db")
         conn.row_factory = sqlite3.Row
         
-        # Get the most recent BTC price
-        last_row = conn.execute("""
-            SELECT * FROM price_data
-            ORDER BY id DESC
-            LIMIT 1
-        """).fetchone()
-        btc_price = round(last_row["price"], 2)
-        
-        # Get the previous BTC price for comparison
-        previous_row = conn.execute("""
-            SELECT * FROM price_data
-            WHERE id < ?
-            ORDER BY id DESC
-            LIMIT 1
-        """, (last_row["id"],)).fetchone()
-        
-        if previous_row:
-            previous_price = round(previous_row["price"], 2)
-            price_change = ((btc_price - previous_price) / previous_price) * 100
-            price_change = round(price_change, 2)
-        else:
-            # If no previous price, assume 0% change
+        # Try to get price from prices table first (preferred)
+        try:
+            last_row = conn.execute("""
+                SELECT * FROM prices
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """).fetchone()
+            
+            if last_row:
+                btc_price = round(last_row["price"], 2)
+                
+                # Get previous price
+                previous_row = conn.execute("""
+                    SELECT * FROM prices
+                    WHERE id < ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (last_row["id"],)).fetchone()
+                
+                if previous_row:
+                    previous_price = round(previous_row["price"], 2)
+                    price_change = ((btc_price - previous_price) / previous_price) * 100
+                    price_change = round(price_change, 2)
+                else:
+                    # If no previous price, assume 0% change
+                    price_change = 0.0
+            else:
+                # Fallback to price_data table
+                print("No data in prices table, trying price_data table...")
+                last_row = conn.execute("""
+                    SELECT * FROM price_data
+                    ORDER BY id DESC
+                    LIMIT 1
+                """).fetchone()
+                
+                if last_row:
+                    btc_price = round(last_row["price"], 2)
+                    previous_row = conn.execute("""
+                        SELECT * FROM price_data
+                        WHERE id < ?
+                        ORDER BY id DESC
+                        LIMIT 1
+                    """, (last_row["id"],)).fetchone()
+                    
+                    if previous_row:
+                        previous_price = round(previous_row["price"], 2)
+                        price_change = ((btc_price - previous_price) / previous_price) * 100
+                        price_change = round(price_change, 2)
+                    else:
+                        price_change = 0.0
+                else:
+                    # If no price data at all, use a placeholder price
+                    print("WARNING: No price data found, using placeholder price")
+                    btc_price = 85000.00
+                    price_change = 0.0
+        except sqlite3.Error as db_error:
+            print(f"Database error when fetching price: {db_error}")
+            # Use placeholder price
+            btc_price = 85000.00
             price_change = 0.0
         
         # Load message templates from JSON file
@@ -398,61 +447,80 @@ def post_tweet():
         # Post the tweet using the Twitter API
         try:
             print("Authenticating with Twitter API...")
-            auth = tweepy.OAuth1UserHandler(
-                os.environ.get("TWITTER_API_KEY"),
-                os.environ.get("TWITTER_API_SECRET"),
-                os.environ.get("TWITTER_ACCESS_TOKEN"),
-                os.environ.get("TWITTER_ACCESS_SECRET")
-            )
-            
-            api = tweepy.API(auth)
-            print("Posting tweet...")
-            
+            # Try the v2 API first, then fallback to v1.1
             try:
+                # V2 API approach
+                client = tweepy.Client(
+                    consumer_key=os.environ.get("TWITTER_API_KEY"),
+                    consumer_secret=os.environ.get("TWITTER_API_SECRET"),
+                    access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
+                    access_token_secret=os.environ.get("TWITTER_ACCESS_SECRET")
+                )
+                
+                print("Posting tweet using Twitter API v2...")
+                response = client.create_tweet(text=tweet)
+                tweet_id = str(response.data['id'])
+                
+                print(f"Tweet posted successfully with ID: {tweet_id}")
+            except (AttributeError, ImportError, Exception) as v2_error:
+                print(f"Error with Twitter API v2: {v2_error}. Trying v1.1 API...")
+                
+                # Fallback to v1.1 API
+                auth = tweepy.OAuth1UserHandler(
+                    os.environ.get("TWITTER_API_KEY"),
+                    os.environ.get("TWITTER_API_SECRET"),
+                    os.environ.get("TWITTER_ACCESS_TOKEN"),
+                    os.environ.get("TWITTER_ACCESS_SECRET")
+                )
+                
+                api = tweepy.API(auth)
+                print("Posting tweet using Twitter API v1.1...")
+                
                 response = api.update_status(tweet)
                 tweet_id = response.id_str
                 print(f"Tweet posted successfully with ID: {tweet_id}")
-                
-                # Store the tweet in the database
-                current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                conn.execute(
-                    'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    (tweet_id, tweet, current_timestamp, btc_price, price_change, "quote", 0, 0, quote)
-                )
-                conn.commit()
-                
-                # Update bot status
-                conn.execute(
-                    'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
-                    (current_timestamp, 'Running', f'Tweet posted with ID: {tweet_id}')
-                )
-                conn.commit()
-                
-                return True
-            except tweepy.errors.TweepyException as e:
-                print(f"Tweepy Error: {type(e).__name__}: {e}")
-                # Get more details from the exception
-                if hasattr(e, 'response'):
-                    if hasattr(e.response, 'text'):
-                        print(f"Response text: {e.response.text}")
-                    if hasattr(e.response, 'status_code'):
-                        print(f"Status code: {e.response.status_code}")
-                # Check for rate limiting
-                if hasattr(e, 'api_codes') and 88 in e.api_codes:
-                    print("Rate limit exceeded")
-                # Check for duplicate tweet
-                if hasattr(e, 'api_codes') and 187 in e.api_codes:
-                    print("Duplicate tweet detected")
-                
-                # Log the error to the database
-                current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                conn.execute(
-                    'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
-                    (current_timestamp, 'Error', f'Tweet failed: {str(e)}')
-                )
-                conn.commit()
-                
-                return False
+            
+            # Store the tweet in the database
+            current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            conn.execute(
+                'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (tweet_id, tweet, current_timestamp, btc_price, price_change, "quote", 0, 0, quote)
+            )
+            conn.commit()
+            
+            # Update bot status
+            conn.execute(
+                'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+                (current_timestamp, 'Running', f'Tweet posted with ID: {tweet_id}')
+            )
+            conn.commit()
+            
+            return True
+            
+        except tweepy.errors.TweepyException as e:
+            print(f"Tweepy Error: {type(e).__name__}: {e}")
+            # Get more details from the exception
+            if hasattr(e, 'response'):
+                if hasattr(e.response, 'text'):
+                    print(f"Response text: {e.response.text}")
+                if hasattr(e.response, 'status_code'):
+                    print(f"Status code: {e.response.status_code}")
+            # Check for rate limiting
+            if hasattr(e, 'api_codes') and 88 in e.api_codes:
+                print("Rate limit exceeded")
+            # Check for duplicate tweet
+            if hasattr(e, 'api_codes') and 187 in e.api_codes:
+                print("Duplicate tweet detected")
+            
+            # Log the error to the database
+            current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            conn.execute(
+                'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+                (current_timestamp, 'Error', f'Tweet failed: {str(e)}')
+            )
+            conn.commit()
+            
+            return False
                 
         except Exception as general_tweet_error:
             print(f"Unexpected error when posting tweet: {type(general_tweet_error).__name__}: {general_tweet_error}")
@@ -469,6 +537,7 @@ def post_tweet():
             
     except Exception as e:
         print(f"Error in post_tweet: {type(e).__name__}: {e}")
+        print(traceback.format_exc())  # Add stack trace for better debugging
         
         try:
             # Try to log to database if connection exists
@@ -480,9 +549,9 @@ def post_tweet():
             )
             conn.commit()
             conn.close()
-        except:
+        except Exception as log_error:
             # If even logging fails, just print to console
-            print("Could not log error to database")
+            print(f"Could not log error to database: {log_error}")
             
         return False
     finally:
