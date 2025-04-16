@@ -425,32 +425,90 @@ def post_tweet():
     
     # Create tweet content
     try:
-        quotes = [
-            "HODL to the moon! 🚀",
-            "Buy the dip, enjoy the trip. 📈",
-            "In crypto we trust. 💎",
-            "Not your keys, not your coins. 🔑",
-            "Blockchain is not just a technology, it's a revolution. ⚡",
-            "Bitcoin fixes this. 🧠",
-            "Diamond hands win in the long run. 💎🙌",
-            "Fear is temporary, regret is forever. 🤔",
-            "The best time to buy Bitcoin was yesterday. The second best time is today. ⏰",
-            "Time in the market beats timing the market. ⌛"
-        ]
-        
-        import random
-        quote = random.choice(quotes)
+        # Try to load message templates from tweet_templates.json
+        try:
+            import json
+            templates_file = 'tweet_templates.json'
+            
+            if os.path.exists(templates_file):
+                with open(templates_file, 'r') as f:
+                    templates = json.load(f)
+                
+                # Choose template based on price movement
+                if price_change >= 0:
+                    template_key = "BTC_UP"
+                    emoji = "📈"
+                else:
+                    template_key = "BTC_DOWN"
+                    emoji = "📉"
+                
+                if template_key in templates and templates[template_key]:
+                    quote = random.choice(templates[template_key])
+                    print(f"Using template from {template_key}")
+                else:
+                    # Fallback to default quotes
+                    print("Template not found in JSON, using fallback quotes")
+                    fallback_quotes = [
+                        "HODL to the moon! 🚀",
+                        "Buy the dip, enjoy the trip. 📈",
+                        "In crypto we trust. 💎",
+                        "Not your keys, not your coins. 🔑",
+                        "Blockchain is not just a technology, it's a revolution. ⚡",
+                        "Bitcoin fixes this. 🧠",
+                        "Diamond hands win in the long run. 💎🙌",
+                        "Fear is temporary, regret is forever. 🤔",
+                        "The best time to buy Bitcoin was yesterday. The second best time is today. ⏰",
+                        "Time in the market beats timing the market. ⌛"
+                    ]
+                    quote = random.choice(fallback_quotes)
+            else:
+                # File doesn't exist, use default quotes
+                print(f"Template file {templates_file} not found, using default quotes")
+                default_quotes = [
+                    "HODL to the moon! 🚀",
+                    "Buy the dip, enjoy the trip. 📈",
+                    "In crypto we trust. 💎",
+                    "Not your keys, not your coins. 🔑",
+                    "Blockchain is not just a technology, it's a revolution. ⚡",
+                    "Bitcoin fixes this. 🧠",
+                    "Diamond hands win in the long run. 💎🙌",
+                    "Fear is temporary, regret is forever. 🤔",
+                    "The best time to buy Bitcoin was yesterday. The second best time is today. ⏰",
+                    "Time in the market beats timing the market. ⌛"
+                ]
+                quote = random.choice(default_quotes)
+                emoji = "📈" if price_change >= 0 else "📉"
+        except Exception as template_error:
+            # If any error occurs with templates, fall back to default quotes
+            print(f"Error loading templates: {template_error}, using default quotes")
+            fallback_quotes = [
+                "HODL to the moon! 🚀",
+                "Buy the dip, enjoy the trip. 📈",
+                "In crypto we trust. 💎",
+                "Not your keys, not your coins. 🔑",
+                "Blockchain is not just a technology, it's a revolution. ⚡",
+                "Bitcoin fixes this. 🧠",
+                "Diamond hands win in the long run. 💎🙌",
+                "Fear is temporary, regret is forever. 🤔",
+                "The best time to buy Bitcoin was yesterday. The second best time is today. ⏰",
+                "Time in the market beats timing the market. ⌛"
+            ]
+            quote = random.choice(fallback_quotes)
+            emoji = "📈" if price_change >= 0 else "📉"
         
         # Format the tweet
-        emoji = "📈" if price_change >= 0 else "📉"
         tweet = f"BTC: ${btc_price:,.2f}"
         
         # Add price change if available
         if price_change != 0.0:
             tweet += f" | {price_change:+.2f}% {emoji}"
             
-        # Add quote and hashtags
-        tweet += f"\n{quote}\n#Bitcoin #Crypto"
+        # Add quote
+        tweet += f"\n{quote}"
+        
+        # If the quote doesn't already contain hashtags, add standard ones
+        if "#Bitcoin" not in quote and "#BTC" not in quote:
+            tweet += "\n#Bitcoin #Crypto"
         
         # Validate tweet length (Twitter limit is 280 characters)
         if len(tweet) > 280:
@@ -460,7 +518,11 @@ def post_tweet():
             tweet = f"BTC: ${btc_price:,.2f}"
             if price_change != 0.0:
                 tweet += f" | {price_change:+.2f}% {emoji}"
-            tweet += f"\n{quote_truncated}\n#Bitcoin #Crypto"
+            tweet += f"\n{quote_truncated}"
+            
+            # Add hashtags only if there's room and they're not in the quote
+            if len(tweet) < 268 and "#Bitcoin" not in quote and "#BTC" not in quote:
+                tweet += "\n#Bitcoin #Crypto"
         
         print(f"Tweet content: {tweet}")
     except Exception as e:
