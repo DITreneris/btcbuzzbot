@@ -454,6 +454,46 @@ def get_scheduler_config():
     
     return config
 
+def post_tweet():
+    """
+    Post a tweet using direct_tweet_fixed module
+    Returns: (success, info) tuple where info is a dict with tweet details or error message
+    """
+    try:
+        # Import dynamically to avoid circular imports
+        import importlib.util
+        module_name = 'direct_tweet_fixed'
+        spec = importlib.util.spec_from_file_location(module_name, f"{module_name}.py")
+        tweet_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tweet_module)
+        
+        # Call the post_tweet function
+        result = tweet_module.post_tweet()
+        
+        if result:
+            # Get the most recent tweet to get its ID
+            with get_db_connection() as conn:
+                latest_tweet = conn.execute(
+                    'SELECT * FROM posts ORDER BY id DESC LIMIT 1'
+                ).fetchone()
+            
+            if latest_tweet:
+                tweet_info = {
+                    'tweet_id': latest_tweet['tweet_id'],
+                    'content': latest_tweet.get('content', latest_tweet['tweet'])
+                }
+            else:
+                tweet_info = {'tweet_id': 'unknown', 'content': 'Tweet posted but ID not found in database'}
+            
+            return True, tweet_info
+        else:
+            return False, {'error': 'Failed to post tweet - unknown error'}
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return False, {'error': str(e)}
+
 # Routes - Home and About
 @app.route('/')
 def home():
