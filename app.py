@@ -1,16 +1,29 @@
 import os
 import sqlite3
 import datetime
-import requests
 import time
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-import scheduler
-import json
 import threading
+
+# Import requests with proper error handling
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+    print("Warning: requests module not available - external API functionality will be limited")
+
+# Import scheduler with proper error handling
+try:
+    import scheduler
+    SCHEDULER_AVAILABLE = True
+except ImportError:
+    SCHEDULER_AVAILABLE = False
+    print("Warning: scheduler module not available - automated posting will be disabled")
 
 # LLM Integration - Import API module
 try:
@@ -18,12 +31,13 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
-    print("Ollama LLM API import failed - LLM functionality will be disabled")
+    print("Warning: Ollama LLM API import failed - LLM functionality will be disabled")
 
 # Initialize Flask app
 app = Flask(__name__, static_folder=os.environ.get('STATIC_FOLDER', 'static'), template_folder=os.environ.get('TEMPLATE_FOLDER', 'templates'))
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key')
 app.config['DATABASE'] = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Limit file uploads to 16MB
 
 # Initialize rate limiter
 limiter = Limiter(
@@ -36,20 +50,30 @@ limiter = Limiter(
 
 # Initialize the scheduler in a background thread
 def start_scheduler():
-    time.sleep(5)  # Wait for the app to fully initialize
-    scheduler.init_db()
-    scheduler.log_status("Info", "Application started")
-    
-    # Only auto-start the scheduler if it was running before
-    last_status = scheduler.get_last_status()
-    if last_status and last_status.get('status') == 'Running':
-        scheduler.start()
-        scheduler.log_status("Info", "Scheduler auto-started on application launch")
+    """Initialize and potentially start the scheduler in a background thread"""
+    # Only attempt if scheduler is available
+    if not SCHEDULER_AVAILABLE:
+        print("Scheduler not available - skipping scheduler initialization")
+        return
+        
+    try:
+        time.sleep(5)  # Wait for the app to fully initialize
+        scheduler.init_db()
+        scheduler.log_status("Info", "Application started")
+        
+        # Only auto-start the scheduler if it was running before
+        last_status = scheduler.get_last_status()
+        if last_status and last_status.get('status') == 'Running':
+            scheduler.start()
+            scheduler.log_status("Info", "Scheduler auto-started on application launch")
+    except Exception as e:
+        print(f"Error initializing scheduler: {e}")
 
 # Start the scheduler in a separate thread to avoid blocking the app
-scheduler_thread = threading.Thread(target=start_scheduler)
-scheduler_thread.daemon = True
-scheduler_thread.start()
+if SCHEDULER_AVAILABLE:
+    scheduler_thread = threading.Thread(target=start_scheduler)
+    scheduler_thread.daemon = True
+    scheduler_thread.start()
 
 # Database helper functions
 def get_db_connection():
@@ -60,97 +84,128 @@ def get_db_connection():
 
 def init_db():
     """Initialize database with required tables for web interface"""
-    with get_db_connection() as conn:
-        # Create web_users table
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS web_users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                is_admin BOOLEAN NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )
-        ''')
-        
-        # Create bot_logs table
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS bot_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                level TEXT NOT NULL,
-                message TEXT NOT NULL
-            )
-        ''')
-        
-        # Create bot_status table
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS bot_status (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                status TEXT NOT NULL,
-                next_scheduled_run TEXT,
-                message TEXT
-            )
-        ''')
-        
-        # Create posts table
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS posts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                content TEXT NOT NULL,
-                content_type TEXT NOT NULL,
-                tweet_id TEXT,
-                likes INTEGER DEFAULT 0,
-                retweets INTEGER DEFAULT 0
-            )
-        ''')
-        
-        # Create quotes table
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS quotes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                quote TEXT NOT NULL,
-                author TEXT,
-                used BOOLEAN DEFAULT 0
-            )
-        ''')
-        
-        # Create jokes table
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS jokes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                joke TEXT NOT NULL,
-                used BOOLEAN DEFAULT 0
-            )
-        ''')
-        
-        # Create prices table
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS prices (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                price REAL NOT NULL,
-                currency TEXT NOT NULL DEFAULT 'USD'
-            )
-        ''')
-        
-        # Check if admin user exists, if not create default
-        admin = conn.execute('SELECT * FROM web_users WHERE username = ?', ('admin',)).fetchone()
-        if not admin:
-            try:
-                # Create default admin user with password 'changeme'
-                conn.execute(
-                    'INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)',
-                    ('admin', generate_password_hash('changeme'), True, datetime.datetime.utcnow().isoformat())
+    try:
+        with get_db_connection() as conn:
+            # Create web_users table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS web_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    is_admin BOOLEAN NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
                 )
-            except sqlite3.IntegrityError:
-                # If there's an integrity error (like the user already exists), just continue
-                pass
-        
-        conn.commit()
+            ''')
+            
+            # Create bot_logs table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS bot_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    message TEXT NOT NULL
+                )
+            ''')
+            
+            # Create bot_status table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS bot_status (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    next_scheduled_run TEXT,
+                    message TEXT
+                )
+            ''')
+            
+            # Create posts table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tweet_id TEXT,
+                    tweet TEXT,
+                    timestamp TEXT NOT NULL,
+                    price REAL,
+                    price_change REAL,
+                    content_type TEXT NOT NULL DEFAULT 'regular',
+                    likes INTEGER DEFAULT 0,
+                    retweets INTEGER DEFAULT 0,
+                    content TEXT
+                )
+            ''')
+            
+            # Create quotes table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS quotes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL,
+                    category TEXT,
+                    created_at TEXT NOT NULL,
+                    used_count INTEGER DEFAULT 0,
+                    last_used TEXT
+                )
+            ''')
+            
+            # Create jokes table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS jokes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL,
+                    category TEXT,
+                    created_at TEXT NOT NULL,
+                    used_count INTEGER DEFAULT 0,
+                    last_used TEXT
+                )
+            ''')
+            
+            # Create prices table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS prices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    source TEXT,
+                    currency TEXT NOT NULL DEFAULT 'USD'
+                )
+            ''')
+            
+            # Check if admin user exists, if not create default
+            admin = conn.execute('SELECT * FROM web_users WHERE username = ?', ('admin',)).fetchone()
+            if not admin:
+                try:
+                    # Create default admin user with password 'changeme'
+                    conn.execute(
+                        'INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)',
+                        ('admin', generate_password_hash('changeme'), True, datetime.datetime.utcnow().isoformat())
+                    )
+                    conn.commit()
+                    print("Created default admin user. Please change the password immediately.")
+                except sqlite3.IntegrityError:
+                    # If there's an integrity error (like the user already exists), just continue
+                    pass
+            
+            # Create scheduler_config table if it doesn't exist
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS scheduler_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            ''')
+            
+            # Insert default schedule if not present
+            config = conn.execute('SELECT value FROM scheduler_config WHERE key = ?', ('schedule',)).fetchone()
+            if not config:
+                default_schedule = '08:00,12:00,16:00,20:00'
+                conn.execute(
+                    'INSERT INTO scheduler_config (key, value) VALUES (?, ?)',
+                    ('schedule', default_schedule)
+                )
+            
+            conn.commit()
+    except Exception as e:
+        print(f"Error initializing database: {e}")
 
-# Authentication decorator - keeping for potential future use but not required anymore
+# Authentication decorator
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -160,37 +215,45 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Removed admin_required decorator as it's no longer needed
-
 # Helper functions for bot data
 def get_bot_status():
     """Get the current bot status"""
-    with get_db_connection() as conn:
-        status = conn.execute(
-            'SELECT * FROM bot_status ORDER BY timestamp DESC LIMIT 1'
-        ).fetchone()
-        
-        # If no status exists, return a default
-        if not status:
-            return {
-                'status': 'Unknown',
-                'timestamp': datetime.datetime.utcnow().isoformat(),
-                'next_scheduled_run': None,
-                'message': 'Bot status not available'
-            }
-        
-        # Check if we have a scheduled status
-        scheduled_status = conn.execute(
-            "SELECT * FROM bot_status WHERE status = 'Scheduled' ORDER BY timestamp DESC LIMIT 1"
-        ).fetchone()
-        
-        result = dict(status)
-        
-        # Add next_scheduled_run from the scheduled status if available
-        if scheduled_status and 'next_scheduled_run' in scheduled_status.keys() and scheduled_status['next_scheduled_run']:
-            result['next_scheduled_run'] = scheduled_status['next_scheduled_run']
+    try:
+        with get_db_connection() as conn:
+            status = conn.execute(
+                'SELECT * FROM bot_status ORDER BY timestamp DESC LIMIT 1'
+            ).fetchone()
             
-        return result
+            # If no status exists, return a default
+            if not status:
+                return {
+                    'status': 'Unknown',
+                    'timestamp': datetime.datetime.utcnow().isoformat(),
+                    'next_scheduled_run': None,
+                    'message': 'Bot status not available'
+                }
+            
+            # Check if we have a scheduled status
+            scheduled_status = conn.execute(
+                "SELECT * FROM bot_status WHERE status = 'Scheduled' ORDER BY timestamp DESC LIMIT 1"
+            ).fetchone()
+            
+            result = dict(status)
+            
+            # Add next_scheduled_run from the scheduled status if available
+            if scheduled_status and 'next_scheduled_run' in scheduled_status.keys() and scheduled_status['next_scheduled_run']:
+                result['next_scheduled_run'] = scheduled_status['next_scheduled_run']
+                
+            return result
+    except Exception as e:
+        print(f"Error getting bot status: {e}")
+        # Return a fallback status
+        return {
+            'status': 'Error',
+            'timestamp': datetime.datetime.utcnow().isoformat(),
+            'next_scheduled_run': None,
+            'message': f'Error retrieving status: {str(e)}'
+        }
 
 def get_recent_posts(limit=10):
     """Get recent posts from the database"""

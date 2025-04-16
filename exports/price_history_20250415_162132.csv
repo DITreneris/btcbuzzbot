@@ -1,0 +1,4 @@
+id,price,timestamp,source,currency,price_change_pct
+1,85001.0,2025-04-14T12:40:04.816066,coingecko,USD,0.0
+2,85070.0,2025-04-14T12:42:37.470107,coingecko,USD,0.08117551558216962
+3,84500.0,2025-04-15 16:11:13,CoinGecko,USD,-0.6700364405783472

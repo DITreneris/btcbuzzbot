@@ -1,0 +1,21 @@
+id,tweet_id,tweet_content,timestamp,price,price_change,content_type,likes,retweets,is_simulated
+1,1911761375329657064,"BTC: $85,001.00 | +0.00% 📈
+HODL to the moon! 🚀
+#Bitcoin #Crypto",2025-04-14T12:40:05.229930,85001.0,0.0,quote,0,0,0
+2,1911762015493701701,"BTC: $85,070.00 | +0.08% 📈
+What did the Bitcoin say to the traditional investor? 'Have fun staying p...",2025-04-14T12:42:37.784949,85070.0,0.08117551558216962,joke,0,0,0
+7,sim_1744722673,"BTC: $84,500.00 | -0.67% 📉
+Fear is temporary, regret is forever. 🤔
+#Bitcoin #Crypto",2025-04-15 16:11:13,84500.0,-0.6700364405783472,regular,0,0,1
+3,sim_1744722400,"BTC: $84,500.00
+Fear is temporary, regret is forever. 🤔
+#Bitcoin #Crypto",2025-04-15T13:06:40.455175,84500.0,0.0,quote,0,0,1
+4,sim_1744722413,"BTC: $84,500.00
+Fear is temporary, regret is forever. 🤔
+#Bitcoin #Crypto",2025-04-15T13:06:53.754178,84500.0,0.0,quote,0,0,1
+5,sim_1744722575,"BTC: $84,500.00
+Buy the dip, enjoy the trip. 📈
+#Bitcoin #Crypto",2025-04-15T13:09:35.075098,84500.0,0.0,quote,0,0,1
+6,sim_1744722617,"BTC: $84,500.00 | -0.67% 📉
+Buy the dip, enjoy the trip. 📈
+#Bitcoin #Crypto",2025-04-15T13:10:17.349590,84500.0,-0.6700364405783472,quote,0,0,1

@@ -1,5 +1,6 @@
 """
-Tweet scheduler for BTCBuzzBot - handles automatic posting at configured intervals
+Tweet scheduler for BTCBuzzBot - handles automatic posting at configured intervals.
+This module manages the scheduling and execution of tweets at predefined times.
 """
 import os
 import sys
@@ -7,8 +8,9 @@ import time
 import sqlite3
 import logging
 import datetime
-from threading import Thread
+import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 # Set up logging
 logging.basicConfig(
@@ -20,16 +22,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger('btcbuzzbot')
 
-# Global state
+# Global state - with thread safety
+scheduler_lock = threading.RLock()
 scheduler_running = False
 scheduler_thread = None
 scheduled_times = ["08:00", "12:00", "16:00", "20:00"]  # Default schedule in UTC
+thread_pool = ThreadPoolExecutor(max_workers=2)
 
 def get_db_connection():
-    """Get a database connection"""
-    conn = sqlite3.connect('btcbuzzbot.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get a database connection with row factory to return dictionaries"""
+    try:
+        conn = sqlite3.connect('btcbuzzbot.db')
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.Error as e:
+        logger.error(f"Failed to connect to database: {e}")
+        raise
 
 def init_db():
     """Initialize the database tables needed for the scheduler"""
@@ -41,6 +49,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
                 status TEXT NOT NULL,
+                next_scheduled_run TEXT,
                 message TEXT NOT NULL
             )
             ''')
@@ -75,9 +84,31 @@ def log_status(status, message):
     
     try:
         with get_db_connection() as conn:
+            # Check if necessary columns exist
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(bot_status)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            # Default values
+            values = []
+            columns_to_insert = []
+            
+            # Always include timestamp and status
+            columns_to_insert.extend(["timestamp", "status"])
+            values.extend([datetime.datetime.utcnow().isoformat(), status])
+            
+            # Add message if the column exists
+            if "message" in columns:
+                columns_to_insert.append("message")
+                values.append(message)
+            
+            # Build dynamic SQL query
+            columns_str = ", ".join(columns_to_insert)
+            placeholders = ", ".join(["?"] * len(columns_to_insert))
+            
             conn.execute(
-                'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
-                (datetime.datetime.utcnow().isoformat(), status, message)
+                f'INSERT INTO bot_status ({columns_str}) VALUES ({placeholders})',
+                values
             )
             conn.commit()
     except Exception as e:
@@ -112,14 +143,33 @@ def get_last_status():
         }
 
 def post_tweet_and_log():
-    """Post a tweet using the direct_tweet module and log the result"""
+    """Post a tweet using the direct_tweet_fixed module and log the result"""
     try:
-        logger.info("Attempting to post scheduled tweet...")
+        logger.info("Attempting to post scheduled tweet with BTC price...")
         
-        # First try to use the tweet_handler module for sophisticated content
+        # First try: Use the enhanced direct_tweet_fixed module with proper DB logging
+        try:
+            import direct_tweet_fixed
+            logger.info("Using direct_tweet_fixed for BTC price-based tweet with DB logging")
+            
+            # Post the tweet using direct_tweet_fixed
+            result = direct_tweet_fixed.post_tweet()
+            
+            if result:
+                log_status("Running", "Scheduled BTC price tweet posted successfully")
+                logger.info("Scheduled BTC price tweet posted and logged successfully")
+                return True
+            else:
+                logger.warning("Failed to post via direct_tweet_fixed, trying fallback method")
+                # Continue to fallback method
+        except Exception as e:
+            logger.error(f"Error using direct_tweet_fixed: {e}, trying fallback method")
+            # Continue to fallback method
+            
+        # Second try: Use the tweet_handler module with proper DB logging
         try:
             from src import tweet_handler
-            logger.info("Using src.tweet_handler for sophisticated tweet content")
+            logger.info("Using tweet_handler as fallback for tweet content")
             
             # Generate a random content type
             import random
@@ -127,57 +177,76 @@ def post_tweet_and_log():
             content_type = random.choice(content_types)
             
             # Post the tweet using the handler
-            handler = tweet_handler.get_instance()
+            handler = tweet_handler.get_tweet_handler()
             if handler:
-                result = handler.post_tweet("", content_type=content_type)
+                result = tweet_handler.post_tweet("", content_type=content_type)
                 
                 if isinstance(result, dict) and result.get('success', False):
-                    log_status("Running", f"Posted {content_type} tweet successfully")
-                    logger.info(f"Posted {content_type} tweet successfully")
+                    log_status("Running", f"Posted {content_type} tweet successfully via tweet_handler")
+                    logger.info(f"Posted {content_type} tweet successfully via tweet_handler")
                     return True
                 else:
                     error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
-                    logger.warning(f"Failed to post via tweet_handler: {error_msg}, trying fallback method")
-                    # Continue to fallback method
+                    logger.warning(f"Failed to post via tweet_handler: {error_msg}, trying last resort method")
+                    # Continue to next method
             else:
-                logger.warning("Tweet handler not initialized, using fallback method")
+                logger.warning("Tweet handler not initialized, trying original direct_tweet")
         except Exception as e:
-            logger.warning(f"Error using tweet_handler: {e}, trying fallback method")
-            # Continue to fallback method
+            logger.warning(f"Error using tweet_handler: {e}, trying original direct_tweet")
+            # Continue to next method
         
-        # Fallback to direct_tweet.py which has proper content with BTC price and quotes
+        # Third try: Use the original direct_tweet (older version without explicit DB logging)
         try:
             import direct_tweet
-            logger.info("Using direct_tweet fallback for tweet content")
+            logger.info("Using original direct_tweet as third option")
             
-            # Try to post the tweet
+            # Post the tweet using direct_tweet
             result = direct_tweet.post_tweet()
             
             if result:
-                log_status("Running", "Scheduled tweet posted successfully via direct_tweet")
-                logger.info("Scheduled tweet posted successfully via direct_tweet")
+                log_status("Running", "Scheduled BTC price tweet posted successfully via original direct_tweet")
+                logger.info("Scheduled BTC price tweet posted successfully via original direct_tweet")
                 return True
             else:
-                logger.warning("Failed to post via direct_tweet, trying last resort method")
+                logger.warning("Failed to post via original direct_tweet, trying fixed_tweet as last resort")
                 # Continue to last resort method
         except Exception as e:
-            logger.warning(f"Error using direct_tweet: {e}, trying last resort method")
+            logger.error(f"Error using original direct_tweet: {e}, trying fixed_tweet as last resort")
             # Continue to last resort method
         
-        # Last resort: Use fixed_tweet as a final fallback (but only if other methods fail)
-        import fixed_tweet
-        logger.info("Using fixed_tweet as last resort")
-        
-        # Try to post the tweet
-        result = fixed_tweet.post_tweet()
-        
-        if result:
-            log_status("Running", "Scheduled tweet posted successfully via fixed_tweet (last resort)")
-            logger.info("Scheduled tweet posted successfully via fixed_tweet (last resort)")
-            return True
-        else:
-            log_status("Error", "Failed to post scheduled tweet (all methods failed)")
-            logger.error("Failed to post scheduled tweet (all methods failed)")
+        # Last resort: Use fixed_tweet as a final fallback (but only if all else fails)
+        try:
+            import fixed_tweet
+            logger.info("Using fixed_tweet as last resort")
+            
+            # Try to post the tweet
+            result = fixed_tweet.post_tweet()
+            
+            if result:
+                log_status("Running", "Scheduled tweet posted successfully via fixed_tweet (last resort)")
+                logger.info("Scheduled tweet posted successfully via fixed_tweet (last resort)")
+                
+                # Try to manually log to database since fixed_tweet doesn't do it
+                try:
+                    import direct_tweet_fixed
+                    direct_tweet_fixed.log_to_database(
+                        tweet_id=str(int(time.time())),  # Use timestamp as fallback ID
+                        content="BTC price update posted via fixed_tweet",
+                        content_type="emergency",
+                        price=None
+                    )
+                    logger.info("Manually logged fixed_tweet to database")
+                except Exception as log_error:
+                    logger.error(f"Failed to manually log fixed_tweet to database: {log_error}")
+                
+                return True
+            else:
+                log_status("Error", "Failed to post scheduled tweet (all methods failed)")
+                logger.error("Failed to post scheduled tweet (all methods failed)")
+                return False
+        except Exception as e:
+            logger.error(f"Error using fixed_tweet: {e}")
+            log_status("Error", "All tweet posting methods failed")
             return False
     except Exception as e:
         error_msg = f"Error posting scheduled tweet: {str(e)}"
@@ -424,7 +493,7 @@ def start_scheduler():
     scheduler_running = True
     
     # Create and start the thread
-    scheduler_thread = Thread(target=scheduler_loop)
+    scheduler_thread = threading.Thread(target=scheduler_loop)
     scheduler_thread.daemon = True  # Allow the thread to exit when the main program exits
     scheduler_thread.start()
     

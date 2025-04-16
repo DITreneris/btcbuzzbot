@@ -1,0 +1,128 @@
+Database: btcbuzzbot.db
+Generated: 2025-04-16 06:57:37
+Found 7 tables
+
+=== PRICES TABLE ===
+
+Columns:
+  id (INTEGER) PRIMARY KEY
+  price (REAL)
+  timestamp (TEXT)
+  source (TEXT)
+  currency (TEXT)
+
+Total rows: 5
+
+Sample data:
+id | price | timestamp | source | currency
+------------------------------------------
+1 | 85001.0 | 2025-04-14T12:4.. | coingecko | USD
+2 | 85070.0 | 2025-04-14T12:4.. | coingecko | USD
+3 | 84500.0 | 2025-04-15 16:1.. | CoinGecko | USD
+
+=== SQLITE_SEQUENCE TABLE ===
+
+Columns:
+  name ()
+  seq ()
+
+Total rows: 5
+
+Sample data:
+name | seq
+----------
+quotes | 10
+jokes | 10
+prices | 5
+
+=== QUOTES TABLE ===
+
+Columns:
+  id (INTEGER) PRIMARY KEY
+  text (TEXT)
+  category (TEXT)
+  created_at (TEXT)
+  used_count (INTEGER)
+  last_used (TEXT)
+
+Total rows: 10
+
+Sample data:
+id | text | category | created_at | used_count | last_used
+----------------------------------------------------------
+1 | HODL to the moo.. | motivational | 2025-04-14T12:4.. | 1 | 2025-04-14T12:4..
+2 | Buy the dip, en.. | motivational | 2025-04-14T12:4.. | 0 | NULL
+3 | In crypto we tr.. | motivational | 2025-04-14T12:4.. | 0 | NULL
+
+=== JOKES TABLE ===
+
+Columns:
+  id (INTEGER) PRIMARY KEY
+  text (TEXT)
+  category (TEXT)
+  created_at (TEXT)
+  used_count (INTEGER)
+  last_used (TEXT)
+
+Total rows: 10
+
+Sample data:
+id | text | category | created_at | used_count | last_used
+----------------------------------------------------------
+1 | Why's Bitcoin s.. | humor | 2025-04-14T12:4.. | 0 | NULL
+2 | What do you cal.. | humor | 2025-04-14T12:4.. | 0 | NULL
+3 | Why is BTC so v.. | humor | 2025-04-14T12:4.. | 0 | NULL
+
+=== POSTS TABLE ===
+
+Columns:
+  id (INTEGER) PRIMARY KEY
+  tweet_id (TEXT)
+  tweet (TEXT)
+  timestamp (TEXT)
+  price (REAL)
+  price_change (REAL)
+  content_type (TEXT)
+  likes (INTEGER)
+  retweets (INTEGER)
+  content (TEXT)
+
+Total rows: 9
+
+Sample data:
+id | tweet_id | tweet | timestamp | price | price_change | content_type | likes | retweets | content
+----------------------------------------------------------------------------------------------------
+1 | 191176137532965.. | BTC: $85,001.00.. | 2025-04-14T12:4.. | 85001.0 | 0.0 | quote | 0 | 0 | 
+2 | 191176201549370.. | BTC: $85,070.00.. | 2025-04-14T12:4.. | 85070.0 | 0.08117551558216962 | joke | 0 | 0 | 
+3 | sim_1744722400 | BTC: $84,500.00.. | 2025-04-15T13:0.. | 84500.0 | 0.0 | quote | 0 | 0 | BTC: $84,500.00..
+
+=== BOT_STATUS TABLE ===
+
+Columns:
+  id (INTEGER) PRIMARY KEY
+  timestamp (TEXT)
+  status (TEXT)
+  next_scheduled_run (TEXT)
+  message (TEXT)
+
+Total rows: 13
+
+Sample data:
+id | timestamp | status | next_scheduled_ | message
+---------------------------------------------------
+1 | 2025-04-15T12:5.. | Initialized | NULL | Database struct..
+2 | 2025-04-15T13:0.. | Running | NULL | Posted tweet wi..
+3 | 2025-04-15T13:0.. | Running | NULL | Posted tweet wi..
+
+=== SCHEDULER_CONFIG TABLE ===
+
+Columns:
+  key (TEXT) PRIMARY KEY
+  value (TEXT)
+
+Total rows: 1
+
+Sample data:
+key | value
+-----------
+schedule | 08:00,12:00,16:..
