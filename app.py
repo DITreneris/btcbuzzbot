@@ -478,9 +478,17 @@ def post_tweet():
                 ).fetchone()
             
             if latest_tweet:
+                # Convert sqlite3.Row to a dictionary first
+                latest_tweet_dict = dict(latest_tweet)
+                
+                # Now we can safely use .get() method
+                content = latest_tweet_dict.get('content')
+                if not content and 'tweet' in latest_tweet_dict:
+                    content = latest_tweet_dict['tweet']
+                
                 tweet_info = {
-                    'tweet_id': latest_tweet['tweet_id'],
-                    'content': latest_tweet.get('content', latest_tweet['tweet'])
+                    'tweet_id': latest_tweet_dict['tweet_id'],
+                    'content': content or 'No content available'
                 }
             else:
                 tweet_info = {'tweet_id': 'unknown', 'content': 'Tweet posted but ID not found in database'}
