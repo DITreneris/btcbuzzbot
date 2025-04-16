@@ -9,6 +9,9 @@ import time
 import traceback
 import sqlite3
 from datetime import datetime, timedelta
+import json
+import random
+import tweepy
 
 # Make sure Python can find modules
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -291,323 +294,201 @@ def log_to_database(tweet_id, tweet_text, price, price_change):
         return False
 
 def post_tweet():
-    """Post a tweet directly using the Twitter API and log to database"""
-    print(f"---- Direct Tweet Fixed Script - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ----")
-    
-    # Flag to track if we're in simulation mode
-    simulation_mode = False
-    
-    # Try importing tweepy - required for this script
+    """
+    Post a tweet about the current BTC price and a motivational quote.
+    Selected based on price movement trend.
+    Returns: boolean indicating success or failure
+    """
     try:
-        # First try normal import
-        try:
-            import tweepy
-            print("✅ Tweepy imported successfully!")
-        except ImportError:
-            # If that fails, set simulation mode
-            print("⚠️ Tweepy not found, running in SIMULATION MODE (will log to DB but not post tweets)")
-            simulation_mode = True
-            
-    except Exception as e:
-        print(f"⚠️ Failed to import tweepy: {e}")
-        print("Running in SIMULATION MODE (will log to DB but not post tweets)")
-        simulation_mode = True
-    
-    # Initialize price variables
-    btc_price = 84500.00  # Default price if can't fetch
-    price_change = 0.0
-    requests_available = False
-    
-    # Try importing requests for price fetch
-    try:
-        import requests
-        requests_available = True
-        print("✅ Requests imported successfully!")
-    except ImportError as e:
-        print(f"❌ Failed to import requests: {e}")
-        print("Will use sample price since requests module is unavailable")
+        # Get auth from .env file
+        load_dotenv()
         
-    # Twitter API credentials - from environment variables
-    try:
-        API_KEY = os.environ.get('TWITTER_API_KEY', '')
-        API_SECRET = os.environ.get('TWITTER_API_SECRET', '')
-        ACCESS_TOKEN = os.environ.get('TWITTER_ACCESS_TOKEN', '')
-        ACCESS_TOKEN_SECRET = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET', '')
+        # Log env var availability for debugging
+        twitter_creds = {
+            'TWITTER_API_KEY': os.environ.get('TWITTER_API_KEY'),
+            'TWITTER_API_SECRET': os.environ.get('TWITTER_API_SECRET'),
+            'TWITTER_ACCESS_TOKEN': os.environ.get('TWITTER_ACCESS_TOKEN'),
+            'TWITTER_ACCESS_SECRET': os.environ.get('TWITTER_ACCESS_SECRET'),
+        }
         
-        # Print first and last few chars of credentials for debugging
-        if not simulation_mode:
-            # Safely print part of the credentials
-            def safe_truncate(text, show_chars=3):
-                if not text:
-                    return "MISSING"
-                if len(text) <= show_chars * 2:
-                    return "TOO SHORT"
-                return f"{text[:show_chars]}...{text[-show_chars:]}"
+        # Check if all Twitter credentials are available
+        missing_creds = [k for k, v in twitter_creds.items() if not v]
+        if missing_creds:
+            print(f"ERROR: Missing Twitter credentials: {', '.join(missing_creds)}")
+            return False
             
-            print(f"API Key: {safe_truncate(API_KEY)}")
-            print(f"API Secret: {safe_truncate(API_SECRET)}")
-            print(f"Access Token: {safe_truncate(ACCESS_TOKEN)}")
-            print(f"Access Token Secret: {safe_truncate(ACCESS_TOKEN_SECRET)}")
+        # Connect to the database and get the current BTC price
+        conn = sqlite3.connect("btcbuzzbot.db")
+        conn.row_factory = sqlite3.Row
         
-        # Check if credentials are set (only if not in simulation mode)
-        if not simulation_mode and not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET]):
-            missing = []
-            if not API_KEY: missing.append("TWITTER_API_KEY")
-            if not API_SECRET: missing.append("TWITTER_API_SECRET")
-            if not ACCESS_TOKEN: missing.append("TWITTER_ACCESS_TOKEN")
-            if not ACCESS_TOKEN_SECRET: missing.append("TWITTER_ACCESS_TOKEN_SECRET")
-            
-            print(f"⚠️ Missing Twitter API credentials: {', '.join(missing)}")
-            print("Running in SIMULATION MODE (will log to DB but not post tweets)")
-            simulation_mode = True
-    except Exception as e:
-        print(f"⚠️ Error getting Twitter credentials: {e}")
-        print("Running in SIMULATION MODE (will log to DB but not post tweets)")
-        simulation_mode = True
-    
-    # Fetch Bitcoin price if requests is available
-    if requests_available:
+        # Get the most recent BTC price
+        last_row = conn.execute("""
+            SELECT * FROM price_data
+            ORDER BY id DESC
+            LIMIT 1
+        """).fetchone()
+        btc_price = round(last_row["price"], 2)
+        
+        # Get the previous BTC price for comparison
+        previous_row = conn.execute("""
+            SELECT * FROM price_data
+            WHERE id < ?
+            ORDER BY id DESC
+            LIMIT 1
+        """, (last_row["id"],)).fetchone()
+        
+        if previous_row:
+            previous_price = round(previous_row["price"], 2)
+            price_change = ((btc_price - previous_price) / previous_price) * 100
+            price_change = round(price_change, 2)
+        else:
+            # If no previous price, assume 0% change
+            price_change = 0.0
+        
+        # Load message templates from JSON file
+        template_key = "BTC_UP" if price_change >= 0 else "BTC_DOWN"
+        emoji = "📈" if price_change >= 0 else "📉"
+        
         try:
-            print("Fetching Bitcoin price from CoinGecko...")
-            response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", 
-                                  timeout=10)
-            # Check for successful response
-            if response.status_code == 200:
-                data = response.json()
-                if "bitcoin" in data and "usd" in data["bitcoin"]:
-                    btc_price = data["bitcoin"]["usd"]
-                    print(f"✅ Current BTC price: ${btc_price:,.2f}")
-                else:
-                    print("⚠️ Unexpected response format from CoinGecko, using default price")
-            else:
-                print(f"⚠️ CoinGecko API returned status code {response.status_code}, using default price")
-            
-            # Try to get previous price from database to calculate change
-            try:
-                db_path = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute('SELECT price FROM prices ORDER BY timestamp DESC LIMIT 1')
-                prev_price_record = cursor.fetchone()
-                conn.close()
-                
-                if prev_price_record:
-                    prev_price = prev_price_record[0]
-                    price_change = ((btc_price - prev_price) / prev_price) * 100
-                    print(f"Previous price: ${prev_price:,.2f}, Change: {price_change:+.2f}%")
-                else:
-                    print("No previous price record found")
-            except Exception as e:
-                print(f"Error fetching previous price: {e}")
-        except Exception as e:
-            print(f"❌ Error fetching Bitcoin price: {e}")
-            # Use sample price
-            print(f"Using sample price: ${btc_price:,.2f}")
-    else:
-        # If requests module is not available, use sample price and try to get change from DB
-        print(f"Using sample price: ${btc_price:,.2f}")
-        try:
-            db_path = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            cursor.execute('SELECT price FROM prices ORDER BY timestamp DESC LIMIT 1')
-            prev_price_record = cursor.fetchone()
-            conn.close()
-            
-            if prev_price_record:
-                prev_price = prev_price_record[0]
-                price_change = ((btc_price - prev_price) / prev_price) * 100
-                print(f"Previous price: ${prev_price:,.2f}, Change: {price_change:+.2f}%")
-            else:
-                print("No previous price record found, using default 0% change")
-        except Exception as e:
-            print(f"Error fetching previous price: {e}")
-    
-    # Create tweet content
-    try:
-        # Try to load message templates from tweet_templates.json
-        try:
-            import json
-            templates_file = 'tweet_templates.json'
-            
-            if os.path.exists(templates_file):
-                with open(templates_file, 'r') as f:
+            # Try to load templates
+            if os.path.exists('tweet_templates.json'):
+                with open('tweet_templates.json', 'r') as f:
                     templates = json.load(f)
-                
-                # Choose template based on price movement
-                if price_change >= 0:
-                    template_key = "BTC_UP"
-                    emoji = "📈"
-                else:
-                    template_key = "BTC_DOWN"
-                    emoji = "📉"
                 
                 if template_key in templates and templates[template_key]:
                     quote = random.choice(templates[template_key])
-                    print(f"Using template from {template_key}")
                 else:
-                    # Fallback to default quotes
-                    print("Template not found in JSON, using fallback quotes")
-                    fallback_quotes = [
-                        "HODL to the moon! 🚀",
-                        "Buy the dip, enjoy the trip. 📈",
-                        "In crypto we trust. 💎",
-                        "Not your keys, not your coins. 🔑",
-                        "Blockchain is not just a technology, it's a revolution. ⚡",
-                        "Bitcoin fixes this. 🧠",
-                        "Diamond hands win in the long run. 💎🙌",
-                        "Fear is temporary, regret is forever. 🤔",
-                        "The best time to buy Bitcoin was yesterday. The second best time is today. ⏰",
-                        "Time in the market beats timing the market. ⌛"
-                    ]
-                    quote = random.choice(fallback_quotes)
+                    # Fallback quotes
+                    if price_change >= 0:
+                        quote = "Stay bullish, Bitcoin is on the rise! #HODL"
+                    else:
+                        quote = "Buy the dip! These prices won't last forever. #BTFD"
             else:
-                # File doesn't exist, use default quotes
-                print(f"Template file {templates_file} not found, using default quotes")
-                default_quotes = [
-                    "HODL to the moon! 🚀",
-                    "Buy the dip, enjoy the trip. 📈",
-                    "In crypto we trust. 💎",
-                    "Not your keys, not your coins. 🔑",
-                    "Blockchain is not just a technology, it's a revolution. ⚡",
-                    "Bitcoin fixes this. 🧠",
-                    "Diamond hands win in the long run. 💎🙌",
-                    "Fear is temporary, regret is forever. 🤔",
-                    "The best time to buy Bitcoin was yesterday. The second best time is today. ⏰",
-                    "Time in the market beats timing the market. ⌛"
-                ]
-                quote = random.choice(default_quotes)
-                emoji = "📈" if price_change >= 0 else "📉"
-        except Exception as template_error:
-            # If any error occurs with templates, fall back to default quotes
-            print(f"Error loading templates: {template_error}, using default quotes")
-            fallback_quotes = [
-                "HODL to the moon! 🚀",
-                "Buy the dip, enjoy the trip. 📈",
-                "In crypto we trust. 💎",
-                "Not your keys, not your coins. 🔑",
-                "Blockchain is not just a technology, it's a revolution. ⚡",
-                "Bitcoin fixes this. 🧠",
-                "Diamond hands win in the long run. 💎🙌",
-                "Fear is temporary, regret is forever. 🤔",
-                "The best time to buy Bitcoin was yesterday. The second best time is today. ⏰",
-                "Time in the market beats timing the market. ⌛"
-            ]
-            quote = random.choice(fallback_quotes)
-            emoji = "📈" if price_change >= 0 else "📉"
+                # Fallback quotes if file not found
+                if price_change >= 0:
+                    quote = "Bitcoin going up! This is the way. #BTC"
+                else:
+                    quote = "Temporary dip, long-term gains. Keep stacking sats! #Bitcoin"
+        except Exception as e:
+            print(f"Error loading templates: {e}")
+            # Fallback quotes if error
+            if price_change >= 0:
+                quote = "Number go up! Bitcoin doing what it does best. #BTC"
+            else:
+                quote = "Weak hands sell, strong hands accumulate. Diamond hands win! #BTC"
         
         # Format the tweet
         tweet = f"BTC: ${btc_price:,.2f}"
         
-        # Add price change if available
-        if price_change != 0.0:
-            tweet += f" | {price_change:+.2f}% {emoji}"
-            
+        # Add price change
+        tweet += f" | {price_change:+.2f}% {emoji}"
+        
         # Add quote
         tweet += f"\n{quote}"
         
-        # If the quote doesn't already contain hashtags, add standard ones
-        if "#Bitcoin" not in quote and "#BTC" not in quote:
-            tweet += "\n#Bitcoin #Crypto"
+        # If quote doesn't already include hashtags, add some
+        if "#" not in quote:
+            if "bitcoin" not in quote.lower() and "btc" not in quote.lower():
+                tweet += " #Bitcoin"
+            if "btc" not in quote.lower() and "bitcoin" not in quote.lower():
+                tweet += " #BTC"
         
-        # Validate tweet length (Twitter limit is 280 characters)
-        if len(tweet) > 280:
-            # Truncate the quote if needed
-            max_quote_length = 280 - (len(tweet) - len(quote))
-            quote_truncated = quote[:max_quote_length-3] + "..."
-            tweet = f"BTC: ${btc_price:,.2f}"
-            if price_change != 0.0:
-                tweet += f" | {price_change:+.2f}% {emoji}"
-            tweet += f"\n{quote_truncated}"
-            
-            # Add hashtags only if there's room and they're not in the quote
-            if len(tweet) < 268 and "#Bitcoin" not in quote and "#BTC" not in quote:
-                tweet += "\n#Bitcoin #Crypto"
+        print(f"Generated tweet: {tweet}")
         
-        print(f"Tweet content: {tweet}")
-    except Exception as e:
-        print(f"❌ Error creating tweet content: {e}")
-        return False
-    
-    # If we're in simulation mode, just log to database without posting
-    if simulation_mode:
-        print("SIMULATION MODE: Skipping actual tweet posting")
-        # Generate a simulated tweet ID using timestamp
-        simulated_tweet_id = f"sim_{int(time.time())}"
-        print(f"Simulated Tweet ID: {simulated_tweet_id}")
-        
-        # Log to database
-        print("Logging simulated tweet to database...")
-        log_success = log_to_database(
-            tweet_id=simulated_tweet_id,
-            tweet_text=tweet,
-            price=btc_price,
-            price_change=price_change
-        )
-        
-        if log_success:
-            print("✅ Simulated tweet successfully logged to database")
-            return True
-        else:
-            print("❌ Failed to log simulated tweet to database")
-            return False
-    
-    # Post the tweet if not in simulation mode
-    try:
-        print("Creating Twitter API client...")
-        client = tweepy.Client(
-            consumer_key=API_KEY,
-            consumer_secret=API_SECRET,
-            access_token=ACCESS_TOKEN,
-            access_token_secret=ACCESS_TOKEN_SECRET
-        )
-        
-        print("Posting tweet...")
-        response = client.create_tweet(text=tweet)
-        
-        if response and hasattr(response, 'data') and 'id' in response.data:
-            tweet_id = response.data['id']
-            print(f"✅ Tweet successfully posted with ID: {tweet_id}")
-            print(f"Tweet URL: https://twitter.com/i/web/status/{tweet_id}")
-            
-            # Log to database
-            print("Logging tweet to database...")
-            log_success = log_to_database(
-                tweet_id=tweet_id,
-                tweet_text=tweet,
-                price=btc_price,
-                price_change=price_change
+        # Post the tweet using the Twitter API
+        try:
+            print("Authenticating with Twitter API...")
+            auth = tweepy.OAuth1UserHandler(
+                os.environ.get("TWITTER_API_KEY"),
+                os.environ.get("TWITTER_API_SECRET"),
+                os.environ.get("TWITTER_ACCESS_TOKEN"),
+                os.environ.get("TWITTER_ACCESS_SECRET")
             )
             
-            if log_success:
-                print("✅ Tweet successfully logged to database")
-            else:
-                print("⚠️ Tweet posted but failed to log to database")
+            api = tweepy.API(auth)
+            print("Posting tweet...")
+            
+            try:
+                response = api.update_status(tweet)
+                tweet_id = response.id_str
+                print(f"Tweet posted successfully with ID: {tweet_id}")
                 
-            return True
-        else:
-            print(f"❌ Failed to post tweet - unexpected response format: {response}")
+                # Store the tweet in the database
+                current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                conn.execute(
+                    'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (tweet_id, tweet, current_timestamp, btc_price, price_change, "quote", 0, 0, quote)
+                )
+                conn.commit()
+                
+                # Update bot status
+                conn.execute(
+                    'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+                    (current_timestamp, 'Running', f'Tweet posted with ID: {tweet_id}')
+                )
+                conn.commit()
+                
+                return True
+            except tweepy.errors.TweepyException as e:
+                print(f"Tweepy Error: {type(e).__name__}: {e}")
+                # Get more details from the exception
+                if hasattr(e, 'response'):
+                    if hasattr(e.response, 'text'):
+                        print(f"Response text: {e.response.text}")
+                    if hasattr(e.response, 'status_code'):
+                        print(f"Status code: {e.response.status_code}")
+                # Check for rate limiting
+                if hasattr(e, 'api_codes') and 88 in e.api_codes:
+                    print("Rate limit exceeded")
+                # Check for duplicate tweet
+                if hasattr(e, 'api_codes') and 187 in e.api_codes:
+                    print("Duplicate tweet detected")
+                
+                # Log the error to the database
+                current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                conn.execute(
+                    'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+                    (current_timestamp, 'Error', f'Tweet failed: {str(e)}')
+                )
+                conn.commit()
+                
+                return False
+                
+        except Exception as general_tweet_error:
+            print(f"Unexpected error when posting tweet: {type(general_tweet_error).__name__}: {general_tweet_error}")
+            
+            # Log the error to the database
+            current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            conn.execute(
+                'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+                (current_timestamp, 'Error', f'Tweet failed: {str(general_tweet_error)}')
+            )
+            conn.commit()
+            
             return False
             
     except Exception as e:
-        print(f"❌ Error posting tweet: {e}")
-        traceback.print_exc()
+        print(f"Error in post_tweet: {type(e).__name__}: {e}")
         
-        # Try to log as a simulated tweet if actual posting fails
-        print("Attempting to log as a simulated tweet instead...")
-        simulated_tweet_id = f"fail_{int(time.time())}"
-        log_success = log_to_database(
-            tweet_id=simulated_tweet_id,
-            tweet_text=tweet,
-            price=btc_price,
-            price_change=price_change
-        )
-        
-        if log_success:
-            print("✅ Failed tweet logged to database as a record")
-            return True
-        
+        try:
+            # Try to log to database if connection exists
+            current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            conn = sqlite3.connect("btcbuzzbot.db")
+            conn.execute(
+                'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+                (current_timestamp, 'Error', f'Error in post_tweet: {str(e)}')
+            )
+            conn.commit()
+            conn.close()
+        except:
+            # If even logging fails, just print to console
+            print("Could not log error to database")
+            
         return False
+    finally:
+        # Close the database connection if it exists
+        if 'conn' in locals() and conn:
+            conn.close()
 
 if __name__ == "__main__":
     success = post_tweet()
