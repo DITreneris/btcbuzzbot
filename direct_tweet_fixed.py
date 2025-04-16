@@ -308,7 +308,7 @@ def post_tweet():
             'TWITTER_API_KEY': os.environ.get('TWITTER_API_KEY'),
             'TWITTER_API_SECRET': os.environ.get('TWITTER_API_SECRET'),
             'TWITTER_ACCESS_TOKEN': os.environ.get('TWITTER_ACCESS_TOKEN'),
-            'TWITTER_ACCESS_SECRET': os.environ.get('TWITTER_ACCESS_SECRET'),
+            'TWITTER_ACCESS_TOKEN_SECRET': os.environ.get('TWITTER_ACCESS_TOKEN_SECRET'),
         }
         
         # Check if all Twitter credentials are available
@@ -454,7 +454,7 @@ def post_tweet():
                     consumer_key=os.environ.get("TWITTER_API_KEY"),
                     consumer_secret=os.environ.get("TWITTER_API_SECRET"),
                     access_token=os.environ.get("TWITTER_ACCESS_TOKEN"),
-                    access_token_secret=os.environ.get("TWITTER_ACCESS_SECRET")
+                    access_token_secret=os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
                 )
                 
                 print("Posting tweet using Twitter API v2...")
@@ -470,7 +470,7 @@ def post_tweet():
                     os.environ.get("TWITTER_API_KEY"),
                     os.environ.get("TWITTER_API_SECRET"),
                     os.environ.get("TWITTER_ACCESS_TOKEN"),
-                    os.environ.get("TWITTER_ACCESS_SECRET")
+                    os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
                 )
                 
                 api = tweepy.API(auth)

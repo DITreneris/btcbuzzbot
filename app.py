@@ -470,7 +470,7 @@ def post_tweet():
         
         # Check if we're in test mode (no Twitter credentials)
         test_mode = False
-        if not os.environ.get('TWITTER_API_KEY') or not os.environ.get('TWITTER_ACCESS_TOKEN'):
+        if not os.environ.get('TWITTER_API_KEY') or not os.environ.get('TWITTER_ACCESS_TOKEN') or not os.environ.get('TWITTER_ACCESS_TOKEN_SECRET'):
             print("WARNING: Missing Twitter credentials, using test mode")
             test_mode = True
         
