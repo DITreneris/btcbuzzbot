@@ -107,6 +107,13 @@ async def post_btc_update(config=None):
             emoji = "📈" if price_change >= 0 else "📉"
             tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{content['text']}\n#Bitcoin #Crypto"
             
+            # --- START Duplicate Check ---
+            print("Checking for recent posts...")
+            if await db.has_posted_recently(minutes=5):
+                print("Skipping post: A tweet was already posted successfully in the last 5 minutes.")
+                return None # Indicate skipped post
+            # --- END Duplicate Check ---
+            
             # Post tweet
             print(f"Posting tweet: {tweet}")
             tweet_id = await twitter.post_tweet(tweet)

@@ -423,18 +423,56 @@ class Database:
             return -1
     
     async def count_records(self, table_name: str) -> int:
-        """Count records in a table"""
+        """Count records in a given table"""
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                async with db.execute(f"SELECT COUNT(*) FROM {table_name}") as cursor:
-                    row = await cursor.fetchone()
-                    return row[0] if row else 0
+            if self.is_postgres:
+                # For PostgreSQL
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                count = cursor.fetchone()[0]
+                cursor.close()
+                conn.close()
+                return count
+            else:
+                # For SQLite
+                async with aiosqlite.connect(self.db_path) as db:
+                    async with db.execute(f"SELECT COUNT(*) FROM {table_name}") as cursor:
+                        result = await cursor.fetchone()
+                        return result[0] if result else 0
         except Exception as e:
             print(f"Error counting records in {table_name}: {e}")
             return 0
-    
+            
+    async def has_posted_recently(self, minutes: int = 5) -> bool:
+        """Check if a tweet has been posted successfully within the last N minutes."""
+        try:
+            now = datetime.utcnow()
+            cutoff_time = (now - datetime.timedelta(minutes=minutes)).isoformat()
+            
+            if self.is_postgres:
+                # For PostgreSQL
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM posts WHERE timestamp > %s", (cutoff_time,))
+                count = cursor.fetchone()[0]
+                cursor.close()
+                conn.close()
+                return count > 0
+            else:
+                # For SQLite
+                async with aiosqlite.connect(self.db_path) as db:
+                    async with db.execute("SELECT COUNT(*) FROM posts WHERE timestamp > ?", (cutoff_time,)) as cursor:
+                        result = await cursor.fetchone()
+                        return result[0] > 0 if result else False
+        except Exception as e:
+            print(f"Error checking for recent posts: {e}")
+            # Default to False to avoid blocking posts if check fails
+            return False
+
     async def close(self):
-        """Close database connection if open"""
-        # For SQLite, connections are already managed with context managers
-        # For PostgreSQL, connections are opened and closed for each operation
+        """Close the database connection if it's open"""
+        # Currently connections are managed per-operation for async SQLite
+        # and sync PostgreSQL, so this might not be strictly necessary
+        # unless a persistent connection pattern is introduced.
         pass 

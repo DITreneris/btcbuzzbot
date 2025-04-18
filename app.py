@@ -9,6 +9,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import threading
 
+# Database imports
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
 # Import requests with proper error handling
 try:
     import requests
@@ -16,14 +20,6 @@ try:
 except ImportError:
     REQUESTS_AVAILABLE = False
     print("Warning: requests module not available - external API functionality will be limited")
-
-# Import scheduler with proper error handling
-try:
-    import scheduler
-    SCHEDULER_AVAILABLE = True
-except ImportError:
-    SCHEDULER_AVAILABLE = False
-    print("Warning: scheduler module not available - automated posting will be disabled")
 
 # LLM Integration - Import API module
 try:
@@ -36,8 +32,20 @@ except ImportError:
 # Initialize Flask app
 app = Flask(__name__, static_folder=os.environ.get('STATIC_FOLDER', 'static'), template_folder=os.environ.get('TEMPLATE_FOLDER', 'templates'))
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key')
-app.config['DATABASE'] = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Limit file uploads to 16MB
+
+# --- START DB Configuration ---
+DATABASE_URL = os.environ.get('DATABASE_URL')
+IS_POSTGRES = False
+if DATABASE_URL:
+    # Fix Heroku's postgres:// prefix
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    IS_POSTGRES = True
+    print("DATABASE_URL detected. Using PostgreSQL for Flask app.")
+else:
+    SQLITE_DB_PATH = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
+    print(f"No DATABASE_URL found. Using SQLite ({SQLITE_DB_PATH}) for Flask app.")
+# --- END DB Configuration ---
 
 # Initialize rate limiter
 limiter = Limiter(
@@ -48,162 +56,126 @@ limiter = Limiter(
     strategy="fixed-window"
 )
 
-# Initialize the scheduler in a background thread
-def start_scheduler():
-    """Initialize and potentially start the scheduler in a background thread"""
-    # Only attempt if scheduler is available
-    if not SCHEDULER_AVAILABLE:
-        print("Scheduler not available - skipping scheduler initialization")
-        return
-        
-    try:
-        time.sleep(5)  # Wait for the app to fully initialize
-        scheduler.init_db()
-        scheduler.log_status("Info", "Application started")
-        
-        # Only auto-start the scheduler if it was running before
-        last_status = scheduler.get_last_status()
-        if last_status and last_status.get('status') == 'Running':
-            scheduler.start()
-            scheduler.log_status("Info", "Scheduler auto-started on application launch")
-    except Exception as e:
-        print(f"Error initializing scheduler: {e}")
-
-# Start the scheduler in a separate thread to avoid blocking the app
-if SCHEDULER_AVAILABLE:
-    scheduler_thread = threading.Thread(target=start_scheduler)
-    scheduler_thread.daemon = True
-    scheduler_thread.start()
-
 # Database helper functions
 def get_db_connection():
-    """Get a SQLite database connection"""
-    conn = sqlite3.connect(app.config['DATABASE'])
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get a database connection (PostgreSQL or SQLite)"""
+    if IS_POSTGRES:
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            return conn
+        except Exception as e:
+            print(f"Error connecting to PostgreSQL: {e}")
+            # Potentially add fallback to parsed URL components if needed, similar to src/database.py
+            raise # Re-raise the exception to indicate connection failure
+    else:
+        # SQLite connection
+        conn = sqlite3.connect(SQLITE_DB_PATH)
+        conn.row_factory = sqlite3.Row # Keep row factory for SQLite
+        return conn
 
 def init_db():
-    """Initialize database with required tables for web interface"""
+    """Initialize database with required tables for web interface (PostgreSQL/SQLite)"""
     try:
         with get_db_connection() as conn:
-            # Create web_users table
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS web_users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    is_admin BOOLEAN NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL
-                )
-            ''')
+            cursor = conn.cursor()
             
-            # Create bot_logs table
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS bot_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    level TEXT NOT NULL,
-                    message TEXT NOT NULL
-                )
-            ''')
+            # Common table creation logic (using standard SQL compatible types)
+            # Web Users Table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS web_users (
+                id {pg_id_type} PRIMARY KEY {pg_autoincrement},
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TEXT NOT NULL
+            )
+            '''.format(
+                pg_id_type="SERIAL" if IS_POSTGRES else "INTEGER",
+                pg_autoincrement="" if IS_POSTGRES else "AUTOINCREMENT"
+            ))
             
-            # Create bot_status table
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS bot_status (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    next_scheduled_run TEXT,
-                    message TEXT
-                )
+            # Bot Logs Table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bot_logs (
+                id {pg_id_type} PRIMARY KEY {pg_autoincrement},
+                timestamp TEXT NOT NULL,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL
+            )
+            '''.format(
+                pg_id_type="SERIAL" if IS_POSTGRES else "INTEGER",
+                pg_autoincrement="" if IS_POSTGRES else "AUTOINCREMENT"
+            ))
+
+            # Bot Status Table (used by web interface)
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bot_status (
+                id {pg_id_type} PRIMARY KEY {pg_autoincrement},
+                timestamp TEXT NOT NULL,
+                status TEXT NOT NULL,
+                next_scheduled_run TEXT,
+                message TEXT
+            )
+            '''.format(
+                pg_id_type="SERIAL" if IS_POSTGRES else "INTEGER",
+                pg_autoincrement="" if IS_POSTGRES else "AUTOINCREMENT"
+            ))
+
+            # Scheduler Config Table (used by web interface)
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS scheduler_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
             ''')
-            
-            # Create posts table
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS posts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tweet_id TEXT,
-                    tweet TEXT,
-                    timestamp TEXT NOT NULL,
-                    price REAL,
-                    price_change REAL,
-                    content_type TEXT NOT NULL DEFAULT 'regular',
-                    likes INTEGER DEFAULT 0,
-                    retweets INTEGER DEFAULT 0,
-                    content TEXT
-                )
-            ''')
-            
-            # Create quotes table
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS quotes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    text TEXT NOT NULL,
-                    category TEXT,
-                    created_at TEXT NOT NULL,
-                    used_count INTEGER DEFAULT 0,
-                    last_used TEXT
-                )
-            ''')
-            
-            # Create jokes table
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS jokes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    text TEXT NOT NULL,
-                    category TEXT,
-                    created_at TEXT NOT NULL,
-                    used_count INTEGER DEFAULT 0,
-                    last_used TEXT
-                )
-            ''')
-            
-            # Create prices table
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS prices (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    price REAL NOT NULL,
-                    source TEXT,
-                    currency TEXT NOT NULL DEFAULT 'USD'
-                )
-            ''')
+
+            # Note: The core tables like 'posts', 'prices', 'quotes', 'jokes' 
+            # are primarily managed by the worker (src/database.py). 
+            # We might want to consolidate table creation later, but for now, 
+            # ensure web-specific tables exist.
             
             # Check if admin user exists, if not create default
-            admin = conn.execute('SELECT * FROM web_users WHERE username = ?', ('admin',)).fetchone()
+            # Need to adjust query syntax for PostgreSQL vs SQLite placeholders
+            admin_query = "SELECT * FROM web_users WHERE username = %s" if IS_POSTGRES else "SELECT * FROM web_users WHERE username = ?"
+            cursor.execute(admin_query, ('admin',))
+            admin = cursor.fetchone()
+            
             if not admin:
                 try:
                     # Create default admin user with password 'changeme'
-                    conn.execute(
-                        'INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)',
+                    insert_query = "INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (%s, %s, %s, %s)" if IS_POSTGRES else "INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)"
+                    cursor.execute(
+                        insert_query,
                         ('admin', generate_password_hash('changeme'), True, datetime.datetime.utcnow().isoformat())
                     )
-                    conn.commit()
+                    conn.commit() # Commit needed after insert
                     print("Created default admin user. Please change the password immediately.")
-                except sqlite3.IntegrityError:
-                    # If there's an integrity error (like the user already exists), just continue
-                    pass
-            
-            # Create scheduler_config table if it doesn't exist
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS scheduler_config (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                )
-            ''')
+                except (psycopg2.errors.UniqueViolation, sqlite3.IntegrityError):
+                    conn.rollback() # Rollback if user already exists
+                    print("Admin user already exists or another integrity error occurred.")
+                except Exception as insert_e:
+                    conn.rollback() # Rollback on other errors
+                    print(f"Error creating default admin user: {insert_e}")
             
             # Insert default schedule if not present
-            config = conn.execute('SELECT value FROM scheduler_config WHERE key = ?', ('schedule',)).fetchone()
+            config_query = "SELECT value FROM scheduler_config WHERE key = %s" if IS_POSTGRES else "SELECT value FROM scheduler_config WHERE key = ?"
+            cursor.execute(config_query, ('schedule',))
+            config = cursor.fetchone()
             if not config:
                 default_schedule = '08:00,12:00,16:00,20:00'
-                conn.execute(
-                    'INSERT INTO scheduler_config (key, value) VALUES (?, ?)',
+                insert_schedule_query = "INSERT INTO scheduler_config (key, value) VALUES (%s, %s)" if IS_POSTGRES else "INSERT INTO scheduler_config (key, value) VALUES (?, ?)"
+                cursor.execute(
+                    insert_schedule_query,
                     ('schedule', default_schedule)
                 )
             
-            conn.commit()
+            conn.commit() # Commit changes
+            cursor.close()
+            print("Web interface database tables checked/initialized.")
     except Exception as e:
-        print(f"Error initializing database: {e}")
+        print(f"Error initializing web database: {e}")
+        # Ensure connection is closed if open
+        # (context manager 'with get_db_connection()' should handle this)
 
 # Authentication decorator
 def login_required(f):
@@ -220,12 +192,18 @@ def get_bot_status():
     """Get the current bot status"""
     try:
         with get_db_connection() as conn:
-            status = conn.execute(
-                'SELECT * FROM bot_status ORDER BY timestamp DESC LIMIT 1'
-            ).fetchone()
+            # Use RealDictCursor for PostgreSQL to get dict-like rows
+            cursor_factory = RealDictCursor if IS_POSTGRES else None
+            cursor = conn.cursor(cursor_factory=cursor_factory)
+            
+            # Adjust query syntax for placeholders
+            status_query = "SELECT * FROM bot_status ORDER BY timestamp DESC LIMIT 1"
+            cursor.execute(status_query)
+            status_row = cursor.fetchone()
             
             # If no status exists, return a default
-            if not status:
+            if not status_row:
+                cursor.close()
                 return {
                     'status': 'Unknown',
                     'timestamp': datetime.datetime.utcnow().isoformat(),
@@ -234,15 +212,16 @@ def get_bot_status():
                 }
             
             # Check if we have a scheduled status
-            scheduled_status = conn.execute(
-                "SELECT * FROM bot_status WHERE status = 'Scheduled' ORDER BY timestamp DESC LIMIT 1"
-            ).fetchone()
+            scheduled_query = "SELECT * FROM bot_status WHERE status = 'Scheduled' ORDER BY timestamp DESC LIMIT 1"
+            cursor.execute(scheduled_query)
+            scheduled_status_row = cursor.fetchone()
+            cursor.close()
             
-            result = dict(status)
+            result = dict(status_row)
             
             # Add next_scheduled_run from the scheduled status if available
-            if scheduled_status and 'next_scheduled_run' in scheduled_status.keys() and scheduled_status['next_scheduled_run']:
-                result['next_scheduled_run'] = scheduled_status['next_scheduled_run']
+            if scheduled_status_row and 'next_scheduled_run' in scheduled_status_row and scheduled_status_row['next_scheduled_run']:
+                result['next_scheduled_run'] = scheduled_status_row['next_scheduled_run']
                 
             return result
     except Exception as e:
@@ -258,50 +237,67 @@ def get_bot_status():
 def get_recent_posts(limit=10):
     """Get recent posts from the database"""
     with get_db_connection() as conn:
-        posts = conn.execute(
-            'SELECT * FROM posts ORDER BY timestamp DESC LIMIT ?', 
-            (limit,)
-        ).fetchall()
+        cursor_factory = RealDictCursor if IS_POSTGRES else None
+        cursor = conn.cursor(cursor_factory=cursor_factory)
+        query = "SELECT * FROM posts ORDER BY timestamp DESC LIMIT %s" if IS_POSTGRES else "SELECT * FROM posts ORDER BY timestamp DESC LIMIT ?"
+        cursor.execute(query, (limit,))
+        posts = cursor.fetchall()
+        cursor.close()
         return [dict(post) for post in posts]
 
 def get_posts_paginated(page=1, per_page=10, date_from=None, date_to=None, content_type=None):
     """Get paginated posts with filtering"""
     with get_db_connection() as conn:
+        cursor_factory = RealDictCursor if IS_POSTGRES else None
+        cursor = conn.cursor(cursor_factory=cursor_factory)
+        
         query = 'SELECT * FROM posts WHERE 1=1'
         params = []
+        param_placeholder = "%s" if IS_POSTGRES else "?"
         
         # Apply filters
         if date_from:
-            query += ' AND timestamp >= ?'
+            query += f' AND timestamp >= {param_placeholder}'
             params.append(date_from)
         if date_to:
-            query += ' AND timestamp <= ?'
+            query += f' AND timestamp <= {param_placeholder}'
             params.append(date_to)
         if content_type:
-            query += ' AND content_type = ?'
+            query += f' AND content_type = {param_placeholder}'
             params.append(content_type)
             
         # Count total matching records
         count_query = query.replace('SELECT *', 'SELECT COUNT(*)')
-        total = conn.execute(count_query, params).fetchone()[0]
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()[0]
         
         # Add pagination
-        query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+        if IS_POSTGRES:
+            query += ' ORDER BY timestamp DESC LIMIT %s OFFSET %s'
+        else:
+            query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+            
         offset = (page - 1) * per_page
         params.extend([per_page, offset])
         
         # Execute query
-        posts = conn.execute(query, params).fetchall()
+        cursor.execute(query, params)
+        posts = cursor.fetchall()
+        cursor.close()
         return [dict(post) for post in posts], total
 
 def get_price_history(days=7):
     """Get Bitcoin price history for the specified number of days"""
     with get_db_connection() as conn:
+        cursor_factory = RealDictCursor if IS_POSTGRES else None
+        cursor = conn.cursor(cursor_factory=cursor_factory)
+        
+        param_placeholder = "%s" if IS_POSTGRES else "?"
         timestamp = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).isoformat()
-        prices = conn.execute(
-            'SELECT * FROM prices WHERE timestamp >= ? ORDER BY timestamp ASC',
-            (timestamp,)
-        ).fetchall()
+        query = f'SELECT * FROM prices WHERE timestamp >= {param_placeholder} ORDER BY timestamp ASC'
+        cursor.execute(query, (timestamp,))
+        prices = cursor.fetchall()
+        cursor.close()
         return [dict(price) for price in prices]
 
 def fetch_bitcoin_price():
@@ -352,11 +348,14 @@ def fetch_bitcoin_price():
                 
                 # Store in database
                 with get_db_connection() as conn:
-                    conn.execute(
-                        'INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)',
+                    cursor = conn.cursor()
+                    query = "INSERT INTO prices (timestamp, price, currency) VALUES (%s, %s, %s)" if IS_POSTGRES else "INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)"
+                    cursor.execute(
+                        query,
                         (datetime.datetime.utcnow().isoformat(), price, 'USD')
                     )
                     conn.commit()
+                    cursor.close()
                     
                 return {
                     "success": True,
@@ -387,19 +386,33 @@ def fetch_bitcoin_price():
 def get_basic_stats():
     """Get basic statistics about the bot"""
     with get_db_connection() as conn:
-        total_posts = conn.execute('SELECT COUNT(*) FROM posts').fetchone()[0]
-        total_quotes = conn.execute('SELECT COUNT(*) FROM quotes').fetchone()[0]
-        total_jokes = conn.execute('SELECT COUNT(*) FROM jokes').fetchone()[0]
+        cursor_factory = RealDictCursor if IS_POSTGRES else None
+        cursor = conn.cursor(cursor_factory=cursor_factory)
+        
+        param_placeholder = "%s" if IS_POSTGRES else "?"
+        
+        cursor.execute('SELECT COUNT(*) FROM posts')
+        total_posts = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM quotes')
+        total_quotes = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM jokes')
+        total_jokes = cursor.fetchone()[0]
         
         # Average engagement
-        avg_likes = conn.execute('SELECT AVG(likes) FROM posts').fetchone()[0] or 0
-        avg_retweets = conn.execute('SELECT AVG(retweets) FROM posts').fetchone()[0] or 0
+        cursor.execute('SELECT AVG(likes) FROM posts')
+        avg_likes_result = cursor.fetchone()
+        avg_likes = avg_likes_result[0] if avg_likes_result and avg_likes_result[0] is not None else 0
+        
+        cursor.execute('SELECT AVG(retweets) FROM posts')
+        avg_retweets_result = cursor.fetchone()
+        avg_retweets = avg_retweets_result[0] if avg_retweets_result and avg_retweets_result[0] is not None else 0
         
         # Most recent price
-        latest_price = conn.execute(
-            'SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1'
-        ).fetchone()
+        cursor.execute('SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1')
+        latest_price_row = cursor.fetchone()
+        latest_price = dict(latest_price_row) if latest_price_row else None
         
+        cursor.close()
         # If we don't have a price yet, fetch one now
         if not latest_price:
             price_data = fetch_bitcoin_price()
@@ -430,28 +443,36 @@ def get_basic_stats():
 def get_recent_errors(limit=5):
     """Get recent error logs"""
     with get_db_connection() as conn:
-        errors = conn.execute(
-            "SELECT * FROM bot_logs WHERE level = 'ERROR' ORDER BY timestamp DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
+        cursor_factory = RealDictCursor if IS_POSTGRES else None
+        cursor = conn.cursor(cursor_factory=cursor_factory)
+        param_placeholder = "%s" if IS_POSTGRES else "?"
+        query = f"SELECT * FROM bot_logs WHERE level = 'ERROR' ORDER BY timestamp DESC LIMIT {param_placeholder}"
+        cursor.execute(query, (limit,))
+        errors = cursor.fetchall()
+        cursor.close()
         return [dict(error) for error in errors]
 
 def get_scheduler_config():
-    """Get the scheduler configuration"""
-    # This would typically read from the .env file or database
-    # For now, we'll just use hardcoded values from .env
-    from dotenv import load_dotenv
-    load_dotenv()
-    
+    """Get the scheduler configuration from the database"""
     config = {
-        'post_times': os.environ.get('POST_TIMES', '08:00,12:00,16:00,20:00').split(','),
-        'timezone': os.environ.get('TIMEZONE', 'UTC')
+        'post_times': '08:00,12:00,16:00,20:00', # Default
+        'timezone': 'UTC' # Default
     }
-    
-    # Get interval configuration
-    interval_config = scheduler.get_interval_config()
-    config.update(interval_config)
-    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            query = "SELECT value FROM scheduler_config WHERE key = %s" if IS_POSTGRES else "SELECT value FROM scheduler_config WHERE key = ?"
+            cursor.execute(query, ('schedule',))
+            schedule_row = cursor.fetchone()
+            if schedule_row:
+                config['post_times'] = schedule_row[0]
+            # Add other config reads here if necessary (e.g., timezone)
+            cursor.close()
+    except Exception as e:
+        print(f"Error reading scheduler config from DB: {e}. Using defaults.")
+        
+    # Split times into a list
+    config['post_times'] = [t.strip() for t in config['post_times'].split(',')]
     return config
 
 def post_tweet():
@@ -661,10 +682,12 @@ def login():
         password = request.form.get('password')
         
         with get_db_connection() as conn:
-            user = conn.execute(
-                'SELECT * FROM web_users WHERE username = ?',
-                (username,)
-            ).fetchone()
+            cursor_factory = RealDictCursor if IS_POSTGRES else None
+            cursor = conn.cursor(cursor_factory=cursor_factory)
+            query = "SELECT * FROM web_users WHERE username = %s" if IS_POSTGRES else "SELECT * FROM web_users WHERE username = ?"
+            cursor.execute(query, (username,))
+            user = cursor.fetchone()
+            cursor.close()
             
             if user and check_password_hash(user['password_hash'], password):
                 session.clear()
@@ -763,18 +786,24 @@ def llm_admin():
                               llm_enabled=False)
 
 @app.route('/control_bot/<action>', methods=['GET', 'POST'])
+@login_required
 def control_bot(action):
     """
     Control the Twitter Bot - start, stop, tweet now
+    DEPRECATED: Controls should happen via Heroku process management.
+    Kept for potential manual tweet trigger.
     """
     try:
-        if action == 'start':
-            scheduler.start()
-            flash('Bot started successfully!', 'success')
-        elif action == 'stop':
-            scheduler.stop()
-            flash('Bot stopped successfully!', 'success')
-        elif action == 'tweet' or action == 'tweet_now':
+        # --- REMOVED START/STOP --- 
+        # if action == 'start':
+        #     # Logic removed as scheduler runs in worker
+        #     flash('Start action is disabled. Manage via Heroku worker.', 'warning')
+        # elif action == 'stop':
+        #     # Logic removed as scheduler runs in worker
+        #     flash('Stop action is disabled. Manage via Heroku worker.', 'warning')
+        # ---
+        if action == 'tweet' or action == 'tweet_now':
+            # Manual tweet trigger might still be useful
             success, tweet_info = post_tweet()
             if success:
                 flash(f'Tweet posted successfully! Tweet ID: {tweet_info["tweet_id"]}', 'success')
@@ -788,27 +817,49 @@ def control_bot(action):
     return redirect(url_for('admin_panel'))
 
 @app.route('/update_schedule', methods=['POST'])
+@login_required
 def update_schedule():
     """
-    Update the scheduler configuration
+    Update the scheduler configuration (schedule times) in the database
     """
+    schedule_times_str = request.form.get('schedule_times')
+    if not schedule_times_str:
+        flash('Schedule times cannot be empty.', 'danger')
+        return redirect(url_for('admin_panel'))
+        
+    # Basic validation (e.g., check HH:MM format)
+    times = [t.strip() for t in schedule_times_str.split(',')]
+    valid_times = []
     try:
-        interval_hours = int(request.form.get('interval_hours', 0))
-        interval_minutes = int(request.form.get('interval_minutes', 0))
+        for t in times:
+            hour, minute = map(int, t.split(':'))
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                valid_times.append(f"{hour:02d}:{minute:02d}")
+            else:
+                raise ValueError("Invalid time format")
+        if not valid_times:
+             raise ValueError("No valid times provided")
+    except ValueError:
+        flash('Invalid schedule format. Use comma-separated HH:MM times (e.g., 08:00,12:00,20:00).', 'danger')
+        return redirect(url_for('admin_panel'))
         
-        # Calculate total minutes
-        total_minutes = (interval_hours * 60) + interval_minutes
-        
-        # Validate input
-        if total_minutes < 5:
-            flash('Schedule interval must be at least 5 minutes!', 'danger')
-            return redirect(url_for('admin_panel'))
-            
-        # Update the scheduler configuration
-        scheduler.update_config(interval_minutes=total_minutes)
-        flash('Scheduler configuration updated successfully!', 'success')
+    valid_schedule_str = ",".join(valid_times)
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # Use UPSERT logic (INSERT ON CONFLICT for Postgres, INSERT OR REPLACE for SQLite)
+            if IS_POSTGRES:
+                query = "INSERT INTO scheduler_config (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            else:
+                query = "INSERT OR REPLACE INTO scheduler_config (key, value) VALUES (?, ?)"
+                
+            cursor.execute(query, ('schedule', valid_schedule_str))
+            conn.commit()
+            cursor.close()
+            flash('Schedule updated successfully in database.', 'success')
     except Exception as e:
-        flash(f'Error updating schedule: {str(e)}', 'danger')
+        flash(f'Error updating schedule in database: {str(e)}', 'danger')
     
     return redirect(url_for('admin_panel'))
 
@@ -836,12 +887,15 @@ def seed_price_data():
                 price = current_price * (1 + variation)
                 
                 # Insert into database
-                conn.execute(
-                    'INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)',
-                    (timestamp, price, 'USD')
-                )
-        
-        conn.commit()
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    query = "INSERT INTO prices (timestamp, price, currency) VALUES (%s, %s, %s)" if IS_POSTGRES else "INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)"
+                    cursor.execute(
+                        query,
+                        (timestamp, price, 'USD')
+                    )
+                    conn.commit()
+                    cursor.close()
     
     return True
 
@@ -850,41 +904,60 @@ def seed_price_data():
 @limiter.limit("60 per minute")
 def health_check():
     """Health check endpoint for monitoring systems"""
+    db_ok = False
     try:
         # Check database connection
         with get_db_connection() as conn:
-            db_status = conn.execute('SELECT 1').fetchone() is not None
+            cursor = conn.cursor()
+            cursor.execute('SELECT 1')
+            db_ok = cursor.fetchone() is not None
+            cursor.close()
+    except Exception as db_e:
+        print(f"Health check DB connection error: {db_e}")
+        db_ok = False
         
-        # Get bot status
+    # Get bot status (handle potential errors)
+    bot_status_data = {}
+    try:
         bot_status_data = get_bot_status()
-        
-        # Check if bot has posted recently (within last 24h)
+    except Exception as status_e:
+        print(f"Health check bot status error: {status_e}")
+        bot_status_data = {'status': 'Error', 'message': str(status_e)}
+
+    # Check if bot has posted recently (within last 24h)
+    recent_post_ok = False
+    try:
         with get_db_connection() as conn:
-            recent_post = conn.execute(
-                "SELECT COUNT(*) FROM posts WHERE timestamp > datetime('now', '-1 day')"
-            ).fetchone()[0] > 0
+            cursor = conn.cursor()
+            # Use appropriate syntax for timestamp comparison
+            if IS_POSTGRES:
+                cursor.execute("SELECT COUNT(*) FROM posts WHERE timestamp > NOW() - interval '1 day'")
+            else:
+                cursor.execute("SELECT COUNT(*) FROM posts WHERE timestamp > datetime('now', '-1 day')")
+            recent_post_ok = cursor.fetchone()[0] > 0
+            cursor.close()
+    except Exception as post_e:
+        print(f"Health check recent post error: {post_e}")
+        recent_post_ok = False
         
-        response = {
-            'status': 'healthy',
-            'timestamp': datetime.datetime.utcnow().isoformat(),
-            'checks': {
-                'database': db_status,
-                'bot_status': bot_status_data['status'],
-                'recent_post': recent_post
-            }
+    response = {
+        'status': 'healthy',
+        'timestamp': datetime.datetime.utcnow().isoformat(),
+        'database_type': 'PostgreSQL' if IS_POSTGRES else 'SQLite',
+        'checks': {
+            'database_connection': db_ok,
+            'bot_status': bot_status_data.get('status', 'Unknown'),
+            'recent_post_logged': recent_post_ok
         }
+    }
+    
+    # If any check fails, mark as unhealthy
+    status_code = 200
+    if not db_ok or response['checks']['bot_status'] == 'Error':
+        response['status'] = 'unhealthy'
+        status_code = 503 # Service Unavailable
         
-        # If any check fails, mark as unhealthy
-        if not db_status or bot_status_data['status'] == 'Error':
-            response['status'] = 'unhealthy'
-        
-        return jsonify(response)
-    except Exception as e:
-        return jsonify({
-            'status': 'unhealthy',
-            'timestamp': datetime.datetime.utcnow().isoformat(),
-            'error': str(e)
-        }), 500
+    return jsonify(response), status_code
 
 # API endpoints
 @app.route('/api/posts', methods=['GET'])
