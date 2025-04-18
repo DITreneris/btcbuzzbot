@@ -29,6 +29,9 @@ except ImportError:
     OLLAMA_AVAILABLE = False
     print("Warning: Ollama LLM API import failed - LLM functionality will be disabled")
 
+# Import load_dotenv from dotenv
+from dotenv import load_dotenv
+
 # Initialize Flask app
 app = Flask(__name__, static_folder=os.environ.get('STATIC_FOLDER', 'static'), template_folder=os.environ.get('TEMPLATE_FOLDER', 'templates'))
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key')
