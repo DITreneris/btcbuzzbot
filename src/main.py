@@ -154,7 +154,8 @@ async def setup_database():
     """Set up the database with initial content"""
     try:
         config = Config()
-        print(f"Setting up SQLite database at {config.sqlite_db_path}...")
+        # Removed confusing log message, Database class handles its own logging.
+        # print(f"Setting up SQLite database at {config.sqlite_db_path}...") 
         db = Database(config.sqlite_db_path)
         cm = ContentManager(db)
         
