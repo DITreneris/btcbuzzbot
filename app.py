@@ -444,190 +444,125 @@ def get_scheduler_config():
 
 def post_tweet():
     """
-    Post a tweet using direct_tweet_fixed module
+    Manually trigger a tweet post from the web interface.
+    Uses synchronous logic suitable for Flask.
     Returns: (success, info) tuple where info is a dict with tweet details or error message
     """
+    
+    # Load necessary config (API keys)
+    # Re-check env vars as they might have changed
+    load_dotenv()
+    api_key = os.environ.get('TWITTER_API_KEY')
+    api_secret = os.environ.get('TWITTER_API_SECRET')
+    access_token = os.environ.get('TWITTER_ACCESS_TOKEN')
+    access_token_secret = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET')
+    
+    if not all([api_key, api_secret, access_token, access_token_secret]):
+        print("ERROR: Twitter credentials missing for manual post.")
+        return False, {'error': 'Twitter API credentials are not configured.'}
+        
     try:
-        # Import dynamically to avoid circular imports
-        import importlib.util
-        import traceback
-        module_name = 'direct_tweet_fixed'
-        spec = importlib.util.spec_from_file_location(module_name, f"{module_name}.py")
-        tweet_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(tweet_module)
+        # 1. Fetch current price (using existing sync function in app.py)
+        print("Fetching price for manual tweet...")
+        price_data = fetch_bitcoin_price() # This function uses requests (sync)
+        if not price_data["success"]:
+            print(f"Manual tweet failed: Could not fetch price - {price_data['error']}")
+            return False, {'error': f"Could not fetch price: {price_data['error']}"}
+            
+        current_price = price_data["price"]
+        price_change_24h = price_data["price_change"]
+        print(f"Manual tweet price: ${current_price:,.2f}")
         
-        # Check if we're in test mode (no Twitter credentials)
-        test_mode = False
-        if not os.environ.get('TWITTER_API_KEY') or not os.environ.get('TWITTER_ACCESS_TOKEN') or not os.environ.get('TWITTER_ACCESS_TOKEN_SECRET'):
-            print("WARNING: Missing Twitter credentials, using test mode")
-            test_mode = True
+        # 2. Format Tweet (Simpler version for manual post, no random content)
+        emoji = "📈" if price_change_24h >= 0 else "📉"
+        # Basic tweet format for manual trigger
+        tweet_text = f"Manual Trigger Test\nBTC: ${current_price:,.2f} | 24h: {price_change_24h:+.2f}% {emoji}\n#Bitcoin"
         
-        # Call the post_tweet function
-        if test_mode:
-            print("TEST MODE: Creating simulated tweet instead of posting to Twitter")
-            # Create a simulated tweet - manually log to database
-            import json
-            import random
-            import time
-            import sqlite3
-            from datetime import datetime
-            
-            # Simulate a Bitcoin price
-            btc_price = 85000.00 + (random.random() * 1000 - 500)  # Random price between $84,500 and $85,500
-            
-            # Load templates
-            template_key = "BTC_UP" if random.random() > 0.5 else "BTC_DOWN"
-            emoji = "📈" if template_key == "BTC_UP" else "📉"
-            
-            try:
-                # Try to load templates
-                if os.path.exists('tweet_templates.json'):
-                    with open('tweet_templates.json', 'r') as f:
-                        templates = json.load(f)
-                    
-                    if template_key in templates and templates[template_key]:
-                        quote = random.choice(templates[template_key])
-                    else:
-                        # Fallback quotes
-                        quote = "Test quote - hodl to the moon! 🚀"
-                else:
-                    quote = "Test quote - bitcoin fixes this! 🧠"
-            except Exception as template_error:
-                print(f"Error loading templates: {template_error}")
-                quote = "Test quote - not your keys, not your coins! 🔑"
-            
-            # Format the tweet
-            tweet = f"BTC: ${btc_price:,.2f}"
-            price_change = random.random() * 4 - 2  # Random change between -2% and +2%
-            
-            # Add price change
-            tweet += f" | {price_change:+.2f}% {emoji}"
-            
-            # Add quote
-            tweet += f"\n{quote}"
-            
-            # Generate a simulated tweet ID
-            simulated_tweet_id = f"sim_{int(time.time())}"
-            
-            # Log to database
-            conn = get_db_connection()
-            current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
-            try:
-                # Fix: Use cursor for PostgreSQL
-                cursor = conn.cursor()
-                if IS_POSTGRES:
-                    query = 'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets, content) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)'
-                    status_query = 'INSERT INTO bot_status (timestamp, status, message) VALUES (%s, %s, %s)'
-                else:
-                    query = 'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-                    status_query = 'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)'
-                
-                cursor.execute(
-                    query,
-                    (simulated_tweet_id, tweet, current_timestamp, btc_price, price_change, "quote", 0, 0, quote)
-                )
-                
-                # Update bot status
-                cursor.execute(
-                    status_query,
-                    (current_timestamp, 'Running', f'Test tweet created with ID: {simulated_tweet_id}')
-                )
-                conn.commit()
-                cursor.close() # Close cursor
-                result = True
-            except Exception as db_error:
-                print(f"Error logging to database: {db_error}")
-                result = False
-            finally:
-                conn.close()
-                
-            if result:
-                # Get the most recent tweet to get its ID
-                with get_db_connection() as conn:
-                    # Fix: Use cursor for PostgreSQL
-                    cursor_factory = RealDictCursor if IS_POSTGRES else None
-                    cursor = conn.cursor(cursor_factory=cursor_factory)
-                    query = 'SELECT * FROM posts ORDER BY id DESC LIMIT 1'
-                    cursor.execute(query)
-                    latest_tweet = cursor.fetchone()
-                    cursor.close() # Close cursor
-            
-            if latest_tweet:
-                # Convert sqlite3.Row to a dictionary first
-                latest_tweet_dict = dict(latest_tweet)
-                
-                # Now we can safely use .get() method
-                content = latest_tweet_dict.get('content')
-                if not content and 'tweet' in latest_tweet_dict:
-                    content = latest_tweet_dict['tweet']
-                
-                tweet_info = {
-                    'tweet_id': latest_tweet_dict['tweet_id'],
-                    'content': content or 'No content available'
-                }
-            else:
-                tweet_info = {'tweet_id': 'unknown', 'content': 'Tweet posted but ID not found in database'}
-            
-            return True, tweet_info
-        else:
-            # Normal mode - actually post to Twitter
-            try:
-                result = tweet_module.post_tweet()
-                
-                if not result:
-                    # Check if there's an error message in the database
-                    with get_db_connection() as conn:
-                        # Fix: Use cursor for PostgreSQL
-                        cursor = conn.cursor()
-                        query = "SELECT message FROM bot_status WHERE status = 'Error' ORDER BY timestamp DESC LIMIT 1"
-                        cursor.execute(query)
-                        error_status = cursor.fetchone()
-                        cursor.close() # Close cursor
-                        
-                        if error_status:
-                            return False, {'error': error_status[0]} # Access message correctly
-                        else:
-                            return False, {'error': 'Failed to post tweet - unknown error'}
-            except Exception as tweet_error:
-                print(f"Exception during tweet_module.post_tweet(): {tweet_error}")
-                print(traceback.format_exc())
-                return False, {'error': f'Exception during tweet: {str(tweet_error)}'}
-        
-        if result:
-            # Get the most recent tweet to get its ID
+        # 3. Duplicate Check (Synchronous)
+        print("Checking for recent posts (sync)...")
+        try:
             with get_db_connection() as conn:
-                # Fix: Use cursor for PostgreSQL
-                cursor_factory = RealDictCursor if IS_POSTGRES else None
-                cursor = conn.cursor(cursor_factory=cursor_factory)
-                query = 'SELECT * FROM posts ORDER BY id DESC LIMIT 1'
-                cursor.execute(query)
-                latest_tweet = cursor.fetchone()
-                cursor.close() # Close cursor
-            
-            if latest_tweet:
-                # Convert sqlite3.Row to a dictionary first
-                latest_tweet_dict = dict(latest_tweet)
+                cursor = conn.cursor()
+                now = datetime.datetime.utcnow()
+                cutoff_time = (now - datetime.timedelta(minutes=5)).isoformat()
                 
-                # Now we can safely use .get() method
-                content = latest_tweet_dict.get('content')
-                if not content and 'tweet' in latest_tweet_dict:
-                    content = latest_tweet_dict['tweet']
+                if IS_POSTGRES:
+                    cursor.execute("SELECT COUNT(*) FROM posts WHERE timestamp > %s", (cutoff_time,))
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM posts WHERE timestamp > ?", (cutoff_time,))
                 
-                tweet_info = {
-                    'tweet_id': latest_tweet_dict['tweet_id'],
-                    'content': content or 'No content available'
-                }
-            else:
-                tweet_info = {'tweet_id': 'unknown', 'content': 'Tweet posted but ID not found in database'}
+                count_result = cursor.fetchone()
+                # Handle potential None result and access correctly
+                count = 0
+                if count_result:
+                     count = count_result[0] if not IS_POSTGRES else count_result.get('count', 0)
+                     
+                cursor.close()
+                if count > 0:
+                    print("Manual tweet skipped: Recent post found.")
+                    return False, {'error': 'Skipped: A tweet was posted successfully in the last 5 minutes.'}
+        except Exception as db_check_err:
+            print(f"Warning: DB check for recent posts failed: {db_check_err}. Proceeding anyway.")
+            # Decide if you want to block or allow if check fails
+
+        # 4. Post Tweet (Synchronous Tweepy v2)
+        print(f"Posting manual tweet: {tweet_text}")
+        try:
+            client = tweepy.Client(
+                consumer_key=api_key,
+                consumer_secret=api_secret,
+                access_token=access_token,
+                access_token_secret=access_token_secret
+            )
+            response = client.create_tweet(text=tweet_text)
             
-            return True, tweet_info
-        else:
-            return False, {'error': 'Failed to post tweet - unknown error'}
-            
+            if not response or not response.data or not response.data.get('id'):
+                 print("Manual tweet failed: No valid response from Twitter API.")
+                 return False, {'error': 'Failed to post tweet - no valid response from Twitter API.'}
+                 
+            tweet_id = response.data['id']
+            print(f"Manual tweet posted successfully! ID: {tweet_id}")
+
+        except tweepy.errors.TweepyException as e:
+            print(f"Manual tweet failed: TweepyException - {e}")
+            # Attempt to parse Twitter API error details
+            error_detail = str(e)
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                try: error_detail = e.response.json() # Or e.response.text
+                except: pass
+            return False, {'error': f'Twitter API Error: {error_detail}'}
+        except Exception as post_err:
+             print(f"Manual tweet failed: Unexpected error during posting - {post_err}")
+             return False, {'error': f'Unexpected error during posting: {str(post_err)}'}
+
+        # 5. Log Post (Synchronous)
+        print(f"Logging manual post {tweet_id} to DB...")
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                timestamp = datetime.datetime.utcnow().isoformat()
+                content_type = "manual" # Indicate it was a manual post
+                
+                if IS_POSTGRES:
+                    query = "INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type) VALUES (%s, %s, %s, %s, %s, %s)"
+                else:
+                    query = "INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type) VALUES (?, ?, ?, ?, ?, ?)"
+                    
+                cursor.execute(query, (tweet_id, tweet_text, timestamp, current_price, price_change_24h, content_type))
+                conn.commit()
+                cursor.close()
+                print("Manual post logged successfully.")
+                return True, {'tweet_id': tweet_id, 'content': tweet_text}
+                
+        except Exception as db_log_err:
+            print(f"ERROR: Failed to log manual tweet {tweet_id} to database: {db_log_err}")
+            # Tweet was posted, but logging failed. Return success but mention logging error.
+            return True, {'tweet_id': tweet_id, 'content': tweet_text, 'warning': 'Tweet posted but failed to log to DB.'}
+
     except Exception as e:
         import traceback
         traceback.print_exc()
+        print(f"Error in post_tweet function: {e}")
         return False, {'error': str(e)}
 
 # Routes - Home and About
