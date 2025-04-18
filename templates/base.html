@@ -25,37 +25,16 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('home') }}">
-                            <i class="fas fa-home"></i> Home
-                        </a>
+                        <a class="nav-link {% if request.path == url_for('home') %}active{% endif %}" href="{{ url_for('home') }}">Home</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('posts') }}">
-                            <i class="fas fa-history"></i> Tweet History
-                        </a>
+                        <a class="nav-link {% if request.path == url_for('posts') %}active{% endif %}" href="{{ url_for('posts') }}">Tweet History</a>
                     </li>
-                </ul>
-                <ul class="navbar-nav">
-                    {% if session.get('user_id') %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('admin_panel') }}">
-                                <i class="fas fa-cog"></i> Admin
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('logout') }}">
-                                <i class="fas fa-sign-out-alt"></i> Logout
-                            </a>
-                        </li>
-                    {% else %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('login') }}">
-                                <i class="fas fa-sign-in-alt"></i> Login
-                            </a>
-                        </li>
-                    {% endif %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == url_for('admin_panel') %}active{% endif %}" href="{{ url_for('admin_panel') }}">Admin</a>
+                    </li>
                 </ul>
             </div>
         </div>

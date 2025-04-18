@@ -80,20 +80,6 @@ def init_db():
             cursor = conn.cursor()
             
             # Common table creation logic (using standard SQL compatible types)
-            # Web Users Table
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS web_users (
-                id {pg_id_type} PRIMARY KEY {pg_autoincrement},
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TEXT NOT NULL
-            )
-            '''.format(
-                pg_id_type="SERIAL" if IS_POSTGRES else "INTEGER",
-                pg_autoincrement="" if IS_POSTGRES else "AUTOINCREMENT"
-            ))
-            
             # Bot Logs Table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS bot_logs (
@@ -134,29 +120,6 @@ def init_db():
             # We might want to consolidate table creation later, but for now, 
             # ensure web-specific tables exist.
             
-            # Check if admin user exists, if not create default
-            # Need to adjust query syntax for PostgreSQL vs SQLite placeholders
-            admin_query = "SELECT * FROM web_users WHERE username = %s" if IS_POSTGRES else "SELECT * FROM web_users WHERE username = ?"
-            cursor.execute(admin_query, ('admin',))
-            admin = cursor.fetchone()
-            
-            if not admin:
-                try:
-                    # Create default admin user with password 'changeme'
-                    insert_query = "INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (%s, %s, %s, %s)" if IS_POSTGRES else "INSERT INTO web_users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)"
-                    cursor.execute(
-                        insert_query,
-                        ('admin', generate_password_hash('changeme'), True, datetime.datetime.utcnow().isoformat())
-                    )
-                    conn.commit() # Commit needed after insert
-                    print("Created default admin user. Please change the password immediately.")
-                except (psycopg2.errors.UniqueViolation, sqlite3.IntegrityError):
-                    conn.rollback() # Rollback if user already exists
-                    print("Admin user already exists or another integrity error occurred.")
-                except Exception as insert_e:
-                    conn.rollback() # Rollback on other errors
-                    print(f"Error creating default admin user: {insert_e}")
-            
             # Insert default schedule if not present
             config_query = "SELECT value FROM scheduler_config WHERE key = %s" if IS_POSTGRES else "SELECT value FROM scheduler_config WHERE key = ?"
             cursor.execute(config_query, ('schedule',))
@@ -176,16 +139,6 @@ def init_db():
         print(f"Error initializing web database: {e}")
         # Ensure connection is closed if open
         # (context manager 'with get_db_connection()' should handle this)
-
-# Authentication decorator
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            flash('Please log in to access this page', 'danger')
-            return redirect(url_for('login', next=request.url))
-        return f(*args, **kwargs)
-    return decorated_function
 
 # Helper functions for bot data
 def get_bot_status():
@@ -686,44 +639,6 @@ def posts():
                           date_to=date_to,
                           content_type=content_type)
 
-# Routes - Authentication (keeping for reference but not required for admin access)
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    """Login page"""
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        with get_db_connection() as conn:
-            cursor_factory = RealDictCursor if IS_POSTGRES else None
-            cursor = conn.cursor(cursor_factory=cursor_factory)
-            query = "SELECT * FROM web_users WHERE username = %s" if IS_POSTGRES else "SELECT * FROM web_users WHERE username = ?"
-            cursor.execute(query, (username,))
-            user = cursor.fetchone()
-            cursor.close()
-            
-            if user and check_password_hash(user['password_hash'], password):
-                session.clear()
-                session['user_id'] = user['id']
-                flash('Login successful', 'success')
-                
-                next_page = request.args.get('next')
-                if not next_page or not next_page.startswith('/'):
-                    next_page = url_for('admin_panel') if user['is_admin'] else url_for('home')
-                
-                return redirect(next_page)
-            
-            flash('Invalid username or password', 'danger')
-    
-    return render_template('login.html', title='Login')
-
-@app.route('/logout')
-def logout():
-    """Logout user"""
-    session.clear()
-    flash('You have been logged out', 'info')
-    return redirect(url_for('home'))
-
 # Routes - Admin Panel
 @app.route('/admin')
 @limiter.limit("30 per minute")
@@ -799,22 +714,11 @@ def llm_admin():
                               llm_enabled=False)
 
 @app.route('/control_bot/<action>', methods=['GET', 'POST'])
-@login_required
 def control_bot(action):
     """
-    Control the Twitter Bot - start, stop, tweet now
-    DEPRECATED: Controls should happen via Heroku process management.
-    Kept for potential manual tweet trigger.
+    Control the Twitter Bot - tweet now
     """
     try:
-        # --- REMOVED START/STOP --- 
-        # if action == 'start':
-        #     # Logic removed as scheduler runs in worker
-        #     flash('Start action is disabled. Manage via Heroku worker.', 'warning')
-        # elif action == 'stop':
-        #     # Logic removed as scheduler runs in worker
-        #     flash('Stop action is disabled. Manage via Heroku worker.', 'warning')
-        # ---
         if action == 'tweet' or action == 'tweet_now':
             # Manual tweet trigger might still be useful
             success, tweet_info = post_tweet()
@@ -830,7 +734,6 @@ def control_bot(action):
     return redirect(url_for('admin_panel'))
 
 @app.route('/update_schedule', methods=['POST'])
-@login_required
 def update_schedule():
     """
     Update the scheduler configuration (schedule times) in the database
