@@ -12,6 +12,7 @@ import threading
 # Database imports
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import tweepy
 
 # Import requests with proper error handling
 try:
