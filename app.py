@@ -392,11 +392,16 @@ def get_basic_stats():
         param_placeholder = "%s" if IS_POSTGRES else "?"
         
         cursor.execute('SELECT COUNT(*) FROM posts')
-        total_posts = cursor.fetchone()[0]
+        total_posts_result = cursor.fetchone()
+        total_posts = total_posts_result['count'] if total_posts_result else 0
+        
         cursor.execute('SELECT COUNT(*) FROM quotes')
-        total_quotes = cursor.fetchone()[0]
+        total_quotes_result = cursor.fetchone()
+        total_quotes = total_quotes_result['count'] if total_quotes_result else 0
+        
         cursor.execute('SELECT COUNT(*) FROM jokes')
-        total_jokes = cursor.fetchone()[0]
+        total_jokes_result = cursor.fetchone()
+        total_jokes = total_jokes_result['count'] if total_jokes_result else 0
         
         # Average engagement
         cursor.execute('SELECT AVG(likes) FROM posts')
@@ -405,7 +410,11 @@ def get_basic_stats():
         
         cursor.execute('SELECT AVG(retweets) FROM posts')
         avg_retweets_result = cursor.fetchone()
-        avg_retweets = avg_retweets_result[0] if avg_retweets_result and avg_retweets_result[0] is not None else 0
+        avg_retweets = 0
+        if avg_retweets_result:
+            avg_retweets_val = avg_retweets_result[0] if not IS_POSTGRES else avg_retweets_result.get('avg')
+            if avg_retweets_val is not None:
+                avg_retweets = avg_retweets_val
         
         # Most recent price
         cursor.execute('SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1')

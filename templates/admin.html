@@ -307,24 +307,17 @@
         <div class="row">
             <div class="col-md-6">
                 <h5>Current Interval</h5>
-                <p><strong>Hours:</strong> {{ schedule.interval_hours }}</p>
-                <p><strong>Minutes:</strong> {{ schedule.interval_minutes }}</p>
-                <p><strong>Total interval:</strong> {{ schedule.interval_hours * 60 + schedule.interval_minutes }} minutes</p>
+                <p><strong>Timezone:</strong> {{ schedule.timezone }}</p>
             </div>
             <div class="col-md-6">
                 <form action="{{ url_for('update_schedule') }}" method="post">
                     <div class="mb-3">
-                        <label for="interval_hours" class="form-label">Hours</label>
-                        <input type="number" class="form-control" id="interval_hours" name="interval_hours" 
-                               value="{{ schedule.interval_hours }}" min="0" max="24">
+                        <label for="schedule" class="form-label">Update Schedule (HH:MM, comma-separated)</label>
+                        <input type="text" class="form-control" id="schedule" name="schedule" 
+                               value="{{ schedule }}" placeholder="08:00, 12:00, 16:00, 20:00">
+                        <div class="form-text text-light">All times in UTC</div>
                     </div>
-                    <div class="mb-3">
-                        <label for="interval_minutes" class="form-label">Minutes</label>
-                        <input type="number" class="form-control" id="interval_minutes" name="interval_minutes" 
-                               value="{{ schedule.interval_minutes }}" min="0" max="59">
-                    </div>
-                    <div class="form-text text-light mb-3">Total interval must be at least 5 minutes</div>
-                    <button type="submit" class="btn btn-primary">Update Interval</button>
+                    <button type="submit" class="btn btn-primary">Update Schedule</button>
                 </form>
             </div>
         </div>
