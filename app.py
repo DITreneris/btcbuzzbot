@@ -485,10 +485,13 @@ def post_tweet():
                     cursor.execute("SELECT COUNT(*) FROM posts WHERE timestamp > ?", (cutoff_time,))
                 
                 count_result = cursor.fetchone()
-                # Handle potential None result and access correctly
+                # Fix: Handle None result and access count correctly based on DB type
                 count = 0
                 if count_result:
-                     count = count_result[0] if not IS_POSTGRES else count_result.get('count', 0)
+                    if IS_POSTGRES:
+                        count = count_result.get('count', 0)
+                    else:
+                        count = count_result[0] # SQLite returns a tuple
                      
                 cursor.close()
                 if count > 0:
