@@ -406,7 +406,11 @@ def get_basic_stats():
         # Average engagement
         cursor.execute('SELECT AVG(likes) FROM posts')
         avg_likes_result = cursor.fetchone()
-        avg_likes = avg_likes_result[0] if avg_likes_result and avg_likes_result[0] is not None else 0
+        avg_likes = 0
+        if avg_likes_result:
+            avg_likes_val = avg_likes_result[0] if not IS_POSTGRES else avg_likes_result.get('avg')
+            if avg_likes_val is not None:
+                avg_likes = avg_likes_val
         
         cursor.execute('SELECT AVG(retweets) FROM posts')
         avg_retweets_result = cursor.fetchone()
