@@ -75,21 +75,12 @@
                         <h4 class="mb-3 text-light">Control Panel</h4>
                         <div class="p-4 bg-panel rounded mb-3">
                             <div class="d-grid gap-2 d-md-flex mb-4">
-                                <form action="{{ url_for('control_bot', action='start') }}" method="post">
-                                    <button type="submit" class="btn btn-success {% if bot_status.status == 'Running' %}disabled{% endif %}">
-                                        <i class="fas fa-play me-2"></i> Start Bot
-                                    </button>
-                                </form>
-                                <form action="{{ url_for('control_bot', action='stop') }}" method="post">
-                                    <button type="submit" class="btn btn-danger {% if bot_status.status != 'Running' %}disabled{% endif %}">
-                                        <i class="fas fa-stop me-2"></i> Stop Bot
-                                    </button>
-                                </form>
                                 <form action="{{ url_for('control_bot', action='tweet_now') }}" method="post">
                                     <button type="submit" class="btn btn-accent">
                                         <i class="fas fa-paper-plane me-2"></i> Post Now
                                     </button>
                                 </form>
+                                <p class="text-muted align-self-center mb-0 ms-md-3">(Start/Stop managed via Heroku worker process)</p>
                             </div>
                             
                             <h6 class="text-accent"><i class="fas fa-clock me-2"></i> Scheduled Post Times:</h6>
@@ -124,24 +115,6 @@
                             <i class="fab fa-twitter me-2"></i> Post Tweet Now
                         </button>
                     </form>
-                </div>
-            </div>
-            <!-- Start/Stop Buttons -->
-            <div class="col-lg-3 col-md-6">
-                <div class="d-grid">
-                    {% if bot_status.status == 'Running' %}
-                        <form action="{{ url_for('control_bot', action='stop') }}" method="post">
-                            <button type="submit" class="btn btn-danger w-100">
-                                <i class="fas fa-stop-circle me-2"></i> Stop Bot
-                            </button>
-                        </form>
-                    {% else %}
-                        <form action="{{ url_for('control_bot', action='start') }}" method="post">
-                            <button type="submit" class="btn btn-success w-100">
-                                <i class="fas fa-play-circle me-2"></i> Start Bot
-                            </button>
-                        </form>
-                    {% endif %}
                 </div>
             </div>
             <!-- Seed Price Data Button -->

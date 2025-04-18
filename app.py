@@ -222,7 +222,8 @@ def get_posts_paginated(page=1, per_page=10, date_from=None, date_to=None, conte
         # Count total matching records
         count_query = query.replace('SELECT *', 'SELECT COUNT(*)')
         cursor.execute(count_query, params)
-        total = cursor.fetchone()[0]
+        total_result = cursor.fetchone()
+        total = total_result['count'] if total_result else 0
         
         # Add pagination
         if IS_POSTGRES:
@@ -513,19 +514,27 @@ def post_tweet():
             current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             try:
-                conn.execute(
-                    'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                # Fix: Use cursor for PostgreSQL
+                cursor = conn.cursor()
+                if IS_POSTGRES:
+                    query = 'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets, content) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)'
+                    status_query = 'INSERT INTO bot_status (timestamp, status, message) VALUES (%s, %s, %s)'
+                else:
+                    query = 'INSERT INTO posts (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                    status_query = 'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)'
+                
+                cursor.execute(
+                    query,
                     (simulated_tweet_id, tweet, current_timestamp, btc_price, price_change, "quote", 0, 0, quote)
                 )
-                conn.commit()
                 
                 # Update bot status
-                conn.execute(
-                    'INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)',
+                cursor.execute(
+                    status_query,
                     (current_timestamp, 'Running', f'Test tweet created with ID: {simulated_tweet_id}')
                 )
                 conn.commit()
-                
+                cursor.close() # Close cursor
                 result = True
             except Exception as db_error:
                 print(f"Error logging to database: {db_error}")
@@ -534,12 +543,33 @@ def post_tweet():
                 conn.close()
                 
             if result:
-                return True, {
-                    'tweet_id': simulated_tweet_id,
-                    'content': tweet
+                # Get the most recent tweet to get its ID
+                with get_db_connection() as conn:
+                    # Fix: Use cursor for PostgreSQL
+                    cursor_factory = RealDictCursor if IS_POSTGRES else None
+                    cursor = conn.cursor(cursor_factory=cursor_factory)
+                    query = 'SELECT * FROM posts ORDER BY id DESC LIMIT 1'
+                    cursor.execute(query)
+                    latest_tweet = cursor.fetchone()
+                    cursor.close() # Close cursor
+            
+            if latest_tweet:
+                # Convert sqlite3.Row to a dictionary first
+                latest_tweet_dict = dict(latest_tweet)
+                
+                # Now we can safely use .get() method
+                content = latest_tweet_dict.get('content')
+                if not content and 'tweet' in latest_tweet_dict:
+                    content = latest_tweet_dict['tweet']
+                
+                tweet_info = {
+                    'tweet_id': latest_tweet_dict['tweet_id'],
+                    'content': content or 'No content available'
                 }
             else:
-                return False, {'error': 'Failed to log simulated tweet to database'}
+                tweet_info = {'tweet_id': 'unknown', 'content': 'Tweet posted but ID not found in database'}
+            
+            return True, tweet_info
         else:
             # Normal mode - actually post to Twitter
             try:
@@ -548,12 +578,15 @@ def post_tweet():
                 if not result:
                     # Check if there's an error message in the database
                     with get_db_connection() as conn:
-                        error_status = conn.execute(
-                            "SELECT message FROM bot_status WHERE status = 'Error' ORDER BY timestamp DESC LIMIT 1"
-                        ).fetchone()
+                        # Fix: Use cursor for PostgreSQL
+                        cursor = conn.cursor()
+                        query = "SELECT message FROM bot_status WHERE status = 'Error' ORDER BY timestamp DESC LIMIT 1"
+                        cursor.execute(query)
+                        error_status = cursor.fetchone()
+                        cursor.close() # Close cursor
                         
                         if error_status:
-                            return False, {'error': error_status[0]}
+                            return False, {'error': error_status[0]} # Access message correctly
                         else:
                             return False, {'error': 'Failed to post tweet - unknown error'}
             except Exception as tweet_error:
@@ -564,9 +597,13 @@ def post_tweet():
         if result:
             # Get the most recent tweet to get its ID
             with get_db_connection() as conn:
-                latest_tweet = conn.execute(
-                    'SELECT * FROM posts ORDER BY id DESC LIMIT 1'
-                ).fetchone()
+                # Fix: Use cursor for PostgreSQL
+                cursor_factory = RealDictCursor if IS_POSTGRES else None
+                cursor = conn.cursor(cursor_factory=cursor_factory)
+                query = 'SELECT * FROM posts ORDER BY id DESC LIMIT 1'
+                cursor.execute(query)
+                latest_tweet = cursor.fetchone()
+                cursor.close() # Close cursor
             
             if latest_tweet:
                 # Convert sqlite3.Row to a dictionary first
