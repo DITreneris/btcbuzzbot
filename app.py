@@ -303,17 +303,6 @@ def fetch_bitcoin_price():
                 price = data["bitcoin"]["usd"]
                 price_change = data["bitcoin"].get("usd_24h_change", 0)
                 
-                # Store in database
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    query = "INSERT INTO prices (timestamp, price, currency) VALUES (%s, %s, %s)" if IS_POSTGRES else "INSERT INTO prices (timestamp, price, currency) VALUES (?, ?, ?)"
-                    cursor.execute(
-                        query,
-                        (datetime.datetime.utcnow().isoformat(), price, 'USD')
-                    )
-                    conn.commit()
-                    cursor.close()
-                    
                 return {
                     "success": True,
                     "price": price,
