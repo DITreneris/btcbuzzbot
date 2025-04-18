@@ -43,24 +43,32 @@ class Scheduler:
         
         # Run the scheduler
         while self.running:
-            current_time = datetime.utcnow()
-            current_hour = current_time.hour
-            current_minute = current_time.minute
+            now_utc = datetime.utcnow()
+            print(f"Scheduler loop check at {now_utc.isoformat()}...")
             
             # Check if it's time to post
+            current_hour_utc = now_utc.hour
+            current_minute_utc = now_utc.minute
+            
+            post_triggered_this_minute = False
+            
             for time_str in self.config.post_times:
-                post_hour, post_minute = self.parse_time(time_str)
+                try:
+                    post_hour, post_minute = self.parse_time(time_str)
+                except ValueError:
+                    print(f"ERROR: Invalid time format '{time_str}' in config. Skipping.")
+                    continue
                 
-                if current_hour == post_hour and current_minute == post_minute:
-                    # It's time to post
-                    print(f"It's posting time! {time_str}")
+                if current_hour_utc == post_hour and current_minute_utc == post_minute and not post_triggered_this_minute:
+                    print(f"It's posting time! Matched {time_str} UTC.")
                     task = asyncio.create_task(self.scheduled_job())
                     self.tasks.append(task)
+                    post_triggered_this_minute = True
             
-            # Sleep until the next minute
-            await asyncio.sleep(60 - current_time.second)
+            seconds_to_sleep = 60 - now_utc.second
+            print(f"Scheduler sleeping for {seconds_to_sleep} seconds...")
+            await asyncio.sleep(seconds_to_sleep)
             
-            # Cleanup completed tasks
             self.tasks = [task for task in self.tasks if not task.done()]
     
     def _setup_signal_handlers(self):
