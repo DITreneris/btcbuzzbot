@@ -138,6 +138,46 @@ class Database:
             )
             ''')
             
+            # Create news_tweets table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS news_tweets (
+                id SERIAL PRIMARY KEY,
+                original_tweet_id TEXT UNIQUE NOT NULL,
+                author TEXT,
+                tweet_text TEXT NOT NULL,
+                tweet_url TEXT,
+                published_at TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                is_news BOOLEAN DEFAULT FALSE,
+                news_score REAL DEFAULT 0.0,
+                sentiment TEXT,
+                summary TEXT
+            );
+            ''')
+            
+            # --- Add Scheduler/Web Interface Tables (PostgreSQL) ---
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bot_status (
+                id SERIAL PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                status TEXT NOT NULL,
+                next_scheduled_run TEXT, 
+                message TEXT NOT NULL
+            )
+            ''')
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS scheduler_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            ''')
+            # Insert default schedule if not present
+            cursor.execute("SELECT value FROM scheduler_config WHERE key = %s", ('schedule',))
+            if not cursor.fetchone():
+                default_schedule = "08:00,12:00,16:00,20:00"
+                cursor.execute("INSERT INTO scheduler_config (key, value) VALUES (%s, %s)", ('schedule', default_schedule))
+            # --- End Scheduler Tables ---
+            
             conn.commit()
     
     def _create_tables_sqlite(self):
@@ -193,6 +233,46 @@ class Database:
                 retweets INTEGER DEFAULT 0
             )
             ''')
+            
+            # Create news_tweets table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS news_tweets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                original_tweet_id TEXT UNIQUE NOT NULL,
+                author TEXT,
+                tweet_text TEXT NOT NULL,
+                tweet_url TEXT,
+                published_at TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                is_news INTEGER DEFAULT 0, -- SQLite uses INTEGER for BOOLEAN (0/1)
+                news_score REAL DEFAULT 0.0,
+                sentiment TEXT,
+                summary TEXT
+            );
+            ''')
+            
+            # --- Add Scheduler/Web Interface Tables (SQLite) ---
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bot_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                status TEXT NOT NULL,
+                next_scheduled_run TEXT,
+                message TEXT NOT NULL
+            )
+            ''')
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS scheduler_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            ''')
+             # Insert default schedule if not present
+            cursor.execute("SELECT value FROM scheduler_config WHERE key = ?", ('schedule',))
+            if not cursor.fetchone():
+                default_schedule = "08:00,12:00,16:00,20:00"
+                cursor.execute("INSERT INTO scheduler_config (key, value) VALUES (?, ?)", ('schedule', default_schedule))
+            # --- End Scheduler Tables ---
             
             conn.commit()
     
@@ -468,6 +548,226 @@ class Database:
         except Exception as e:
             print(f"Error checking for recent posts: {e}")
             # Default to False to avoid blocking posts if check fails
+            return False
+
+    # --- Scheduler/Status Specific Methods --- 
+
+    async def log_bot_status(self, status: str, message: str):
+        """Log bot status (e.g., Running, Error, Stopped) to the bot_status table."""
+        timestamp = datetime.utcnow().isoformat() # Consider timezone consistency
+        try:
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                # Assuming next_scheduled_run is managed elsewhere or not logged here
+                cursor.execute(
+                    "INSERT INTO bot_status (timestamp, status, message) VALUES (%s, %s, %s)",
+                    (timestamp, status, message)
+                )
+                conn.commit()
+                cursor.close()
+                conn.close()
+            else:
+                async with aiosqlite.connect(self.db_path) as db:
+                    await db.execute(
+                        "INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)",
+                        (timestamp, status, message)
+                    )
+                    await db.commit()
+        except Exception as e:
+            print(f"Error logging bot status: {e}", file=sys.stderr)
+
+    async def get_scheduler_config(self) -> Optional[str]:
+        """Get the schedule string from scheduler_config table."""
+        try:
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM scheduler_config WHERE key = %s", ('schedule',))
+                row = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                return row[0] if row else None
+            else:
+                async with aiosqlite.connect(self.db_path) as db:
+                    async with db.execute("SELECT value FROM scheduler_config WHERE key = ?", ('schedule',)) as cursor:
+                        row = await cursor.fetchone()
+                        return row[0] if row else None
+        except Exception as e:
+            print(f"Error getting scheduler config: {e}", file=sys.stderr)
+            return None # Return None on error
+
+    async def update_scheduler_config(self, schedule_str: str):
+        """Update the schedule string in scheduler_config table."""
+        try:
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO scheduler_config (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    ('schedule', schedule_str)
+                )
+                conn.commit()
+                cursor.close()
+                conn.close()
+            else:
+                async with aiosqlite.connect(self.db_path) as db:
+                    await db.execute(
+                        "INSERT OR REPLACE INTO scheduler_config (key, value) VALUES (?, ?)",
+                        ('schedule', schedule_str)
+                    )
+                    await db.commit()
+        except Exception as e:
+            print(f"Error updating scheduler config: {e}", file=sys.stderr)
+
+    async def store_news_tweet(self, tweet_data: Dict[str, Any]) -> Optional[int]:
+        """Store a fetched tweet into the news_tweets table, ignoring duplicates."""
+        # Ensure required fields are present
+        required_fields = ['original_tweet_id', 'author', 'tweet_text', 'tweet_url', 'published_at', 'fetched_at']
+        if not all(field in tweet_data for field in required_fields):
+            print(f"Error storing news tweet: Missing required fields in {tweet_data.keys()}", file=sys.stderr)
+            return None
+
+        # Optional fields with defaults
+        is_news = tweet_data.get('is_news', False) # Default to False
+        news_score = tweet_data.get('news_score', 0.0)
+        sentiment = tweet_data.get('sentiment', None)
+        summary = tweet_data.get('summary', None)
+        
+        # Convert boolean for SQLite
+        is_news_db = 1 if is_news else 0 if not self.is_postgres else is_news
+
+        try:
+            if self.is_postgres:
+                sql = """
+                INSERT INTO news_tweets 
+                (original_tweet_id, author, tweet_text, tweet_url, published_at, fetched_at, 
+                 is_news, news_score, sentiment, summary)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (original_tweet_id) DO NOTHING
+                RETURNING id;
+                """
+                params = (
+                    tweet_data['original_tweet_id'], tweet_data['author'], tweet_data['tweet_text'], 
+                    tweet_data['tweet_url'], tweet_data['published_at'], tweet_data['fetched_at'],
+                    is_news, news_score, sentiment, summary
+                )
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                result = cursor.fetchone() # Will be None if conflict occurred
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return result[0] if result else None
+            else:
+                # Use INSERT OR IGNORE for SQLite
+                sql = """
+                INSERT OR IGNORE INTO news_tweets
+                (original_tweet_id, author, tweet_text, tweet_url, published_at, fetched_at,
+                 is_news, news_score, sentiment, summary)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """
+                params = (
+                    tweet_data['original_tweet_id'], tweet_data['author'], tweet_data['tweet_text'], 
+                    tweet_data['tweet_url'], tweet_data['published_at'], tweet_data['fetched_at'],
+                    is_news_db, news_score, sentiment, summary
+                )
+                async with aiosqlite.connect(self.db_path) as db:
+                    cursor = await db.execute(sql, params)
+                    await db.commit()
+                    # Return lastrowid only if a row was inserted (changes > 0)
+                    return cursor.lastrowid if db.total_changes > 0 else None
+        except Exception as e:
+            print(f"Error storing news tweet (ID: {tweet_data.get('original_tweet_id', 'N/A')}): {e}", file=sys.stderr)
+            return None
+
+    async def get_unprocessed_news_tweets(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Fetches tweets from news_tweets that haven't been marked as news yet."""
+        tweets = []
+        try:
+            if self.is_postgres:
+                sql = """
+                SELECT * FROM news_tweets 
+                WHERE is_news = FALSE OR is_news IS NULL 
+                ORDER BY published_at DESC -- Process newer tweets first? Or oldest?
+                LIMIT %s;
+                """
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                cursor.execute(sql, (limit,))
+                rows = cursor.fetchall()
+                cursor.close()
+                conn.close()
+                tweets = [dict(row) for row in rows]
+            else:
+                # Fetch where is_news = 0 (SQLite boolean)
+                sql = """
+                SELECT * FROM news_tweets 
+                WHERE is_news = 0 OR is_news IS NULL 
+                ORDER BY published_at DESC 
+                LIMIT ?;
+                """
+                async with aiosqlite.connect(self.db_path) as db:
+                    db.row_factory = aiosqlite.Row
+                    async with db.execute(sql, (limit,)) as cursor:
+                        rows = await cursor.fetchall()
+                        tweets = [dict(row) for row in rows]
+        except Exception as e:
+            print(f"Error fetching unprocessed news tweets: {e}", file=sys.stderr)
+        
+        return tweets
+
+    async def update_news_tweet_analysis(self, original_tweet_id: str, analysis_results: Dict[str, Any]):
+        """Updates a news tweet record with analysis results."""
+        # Fields to potentially update
+        fields_to_update = {
+            'is_news': analysis_results.get('is_news'),
+            'news_score': analysis_results.get('news_score'),
+            'sentiment': analysis_results.get('sentiment'),
+            'summary': analysis_results.get('summary')
+        }
+        
+        # Filter out None values to avoid overwriting existing data unintentionally
+        update_data = {k: v for k, v in fields_to_update.items() if v is not None}
+        
+        if not update_data:
+            print(f"No analysis results provided to update for tweet ID {original_tweet_id}")
+            return False # Nothing to update
+
+        # Handle SQLite boolean conversion if is_news is present
+        if 'is_news' in update_data and not self.is_postgres:
+            update_data['is_news'] = 1 if update_data['is_news'] else 0
+            
+        set_clause = ", ".join([f"{key} = %s" if self.is_postgres else f"{key} = ?" for key in update_data.keys()])
+        params = list(update_data.values())
+        params.append(original_tweet_id) # For the WHERE clause
+        
+        sql = f"UPDATE news_tweets SET {set_clause} WHERE original_tweet_id = {'%s' if self.is_postgres else '?'};"
+        
+        try:
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute(sql, tuple(params))
+                updated_rows = cursor.rowcount
+                conn.commit()
+                cursor.close()
+                conn.close()
+            else:
+                async with aiosqlite.connect(self.db_path) as db:
+                    cursor = await db.execute(sql, tuple(params))
+                    await db.commit()
+                    updated_rows = cursor.rowcount
+                    
+            if updated_rows > 0:
+                print(f"Successfully updated analysis for tweet ID {original_tweet_id}")
+                return True
+            else:
+                print(f"No tweet found with ID {original_tweet_id} to update analysis.")
+                return False
+        except Exception as e:
+            print(f"Error updating analysis for tweet ID {original_tweet_id}: {e}", file=sys.stderr)
             return False
 
     async def close(self):

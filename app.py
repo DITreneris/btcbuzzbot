@@ -202,6 +202,39 @@ def get_recent_posts(limit=10):
         cursor.close()
         return [dict(post) for post in posts]
 
+def get_potential_news(limit=10):
+    """Get recent potential news tweets from the news_tweets table."""
+    news_items = []
+    try:
+        with get_db_connection() as conn:
+            cursor_factory = RealDictCursor if IS_POSTGRES else None
+            cursor = conn.cursor(cursor_factory=cursor_factory)
+            
+            # Query news_tweets, filter by is_news=True (or 1 for SQLite), sort by score or publish time
+            # Assuming is_news is the primary flag set by the analyzer
+            is_news_filter = "is_news = TRUE" if IS_POSTGRES else "is_news = 1"
+            query = f"""
+            SELECT original_tweet_id, author, tweet_text, tweet_url, published_at, news_score, sentiment 
+            FROM news_tweets 
+            WHERE {is_news_filter} 
+            ORDER BY news_score DESC, published_at DESC 
+            LIMIT {'%s' if IS_POSTGRES else '?'};
+            """
+            
+            cursor.execute(query, (limit,))
+            news_items = cursor.fetchall()
+            cursor.close()
+            logger.info(f"Fetched {len(news_items)} potential news tweets from DB.")
+    except Exception as e:
+        # Log the error but don't crash the app
+        logger.error(f"Error fetching potential news tweets: {e}", exc_info=True)
+        # Optionally check if table exists?
+        if "no such table" in str(e).lower() or ("relation" in str(e).lower() and "does not exist" in str(e).lower()):
+             logger.warning("'news_tweets' table might not exist yet.")
+        news_items = [] # Return empty list on error
+        
+    return [dict(item) for item in news_items]
+
 def get_posts_paginated(page=1, per_page=10, date_from=None, date_to=None, content_type=None):
     """Get paginated posts with filtering"""
     with get_db_connection() as conn:
@@ -611,29 +644,30 @@ def posts():
 @app.route('/admin')
 @limiter.limit("30 per minute")
 def admin_panel():
-    """Admin panel for bot control and monitoring"""
-    # Get bot status
-    bot_status = get_bot_status()
+    """Display the main admin dashboard"""
+    # Basic stats
+    stats = get_basic_stats()
     
-    # Get scheduled times
-    schedule = get_scheduler_config()
+    # Price history (e.g., last 7 days)
+    price_data = get_price_history(days=7)
     
-    # Get recent errors
-    errors = get_recent_errors(limit=5)
-    
-    # Get recent posts
+    # Recent posts (bot's generated tweets)
     recent_posts = get_recent_posts(limit=5)
     
-    # Get price history for chart
-    price_history = get_price_history(days=7)
+    # Recent errors (from bot_logs?)
+    recent_errors = get_recent_errors(limit=5)
+
+    # --- NEW: Get potential news tweets ---
+    potential_news = get_potential_news(limit=10)
     
-    return render_template('admin.html', 
-                          title='Admin Panel',
-                          bot_status=bot_status,
-                          schedule=schedule,
-                          errors=errors,
-                          recent_posts=recent_posts,
-                          price_history=price_history)
+    # Render template
+    return render_template('admin.html',
+                           stats=stats,
+                           price_history=price_data,
+                           recent_posts=recent_posts,
+                           recent_errors=recent_errors,
+                           potential_news=potential_news # Pass news data to template
+                           )
 
 @app.route('/admin/llm')
 @limiter.limit("30 per minute")

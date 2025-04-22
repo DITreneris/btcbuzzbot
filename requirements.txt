@@ -1,15 +1,38 @@
-tweepy==4.14.0
-requests==2.32.0
-python-dotenv==1.0.0
+# Flask and web server
+Flask>=2.0.0
+gunicorn>=20.0.0
+
+# Database
+psycopg2-binary>=2.8.0 # For PostgreSQL on Heroku
+aiosqlite>=0.17.0 # For async SQLite
+
+# Twitter API
+tweepy>=4.0.0
+
+# HTTP Requests
+requests>=2.25.0
+
+# Environment variables
+python-dotenv>=0.15.0
+
+# Rate limiting
+Flask-Limiter>=1.4
+
+# Sentiment Analysis
+vaderSentiment>=3.3.2
+
+# LLM Client (Groq)
+groq>=0.4.0
+
+# Timezones
+pytz>=2023.3
+
+# Scheduling
+APScheduler>=3.0.0,<4.0.0
+
 pytest==7.4.0
 pytest-asyncio==0.23.5
 aiohttp==3.9.3
-aiosqlite==0.21.0
-flask==3.0.2
-flask-wtf==1.2.1
 werkzeug==3.0.2
-gunicorn==22.0.0
 pyjwt==2.8.0
-bcrypt==4.1.2
-psycopg2-binary==2.9.9
-flask-limiter==3.5.1 
+bcrypt==4.1.2 

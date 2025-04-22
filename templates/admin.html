@@ -185,6 +185,54 @@
     </div>
 </div>
 
+<!-- Potential News Tweets -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="mb-0"><i class="fas fa-newspaper me-2 text-warning"></i> Potential News Tweets</h3>
+                {# Add a View All button later if needed #}
+            </div>
+            <div class="card-body">
+                {% if potential_news %}
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Published</th>
+                                    <th>Author</th>
+                                    <th>Text</th>
+                                    <th>Score</th> {# Optional score from analyzer #}
+                                    <th>Link</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for news_item in potential_news %}
+                                    <tr>
+                                        <td class="text-nowrap">{{ news_item.published_at }}</td>
+                                        <td>{{ news_item.author }}</td>
+                                        <td>{{ news_item.tweet_text }}</td>
+                                        <td class="text-nowrap">{{ "{:.2f}".format(news_item.news_score) if news_item.news_score is not none else 'N/A' }}</td>
+                                        <td class="text-nowrap">
+                                            <a href="{{ news_item.tweet_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info">
+                                                <i class="fas fa-external-link-alt"></i> View
+                                            </a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-secondary">
+                        <i class="fas fa-info-circle me-2"></i> No potential news tweets found yet (or analyzer hasn't run).
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Recent Posts -->
 <div class="row">
     <div class="col-12">

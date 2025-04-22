@@ -42,10 +42,16 @@ class Config:
         self.twitter_api_secret = os.environ.get('TWITTER_API_SECRET')
         self.twitter_access_token = os.environ.get('TWITTER_ACCESS_TOKEN')
         self.twitter_access_token_secret = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET')
+        self.twitter_bearer_token = os.environ.get('TWITTER_BEARER_TOKEN')
+        self.twitter_search_query = os.environ.get('TWITTER_SEARCH_QUERY', '#Bitcoin -is:retweet')
         
+        # Check basic credentials needed for posting
         if not all([self.twitter_api_key, self.twitter_api_secret, 
                    self.twitter_access_token, self.twitter_access_token_secret]):
-            self.logger.warning("Some Twitter API credentials are missing. Tweet posting may fail.")
+            self.logger.warning("Some Twitter User auth API credentials (v1.1/v2 post) are missing. Tweet posting may fail.")
+        # Check credentials needed for searching
+        if not self.twitter_bearer_token:
+             self.logger.warning("Twitter Bearer Token (v2 app-only) is missing. News fetching may fail.")
         
         # Database configuration
         self.sqlite_db_path = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
@@ -62,6 +68,12 @@ class Config:
         # CoinGecko API configuration
         self.coingecko_api_url = os.environ.get('COINGECKO_API_URL', 'https://api.coingecko.com/api/v3')
         self.coingecko_retry_limit = int(os.environ.get('COINGECKO_RETRY_LIMIT', '3'))
+        
+        # Groq LLM Configuration
+        self.groq_api_key = os.environ.get('GROQ_API_KEY')
+        self.groq_model = os.environ.get('GROQ_MODEL', 'llama3-8b-8192')
+        if not self.groq_api_key:
+            self.logger.warning("GROQ_API_KEY not found. LLM analysis will be disabled.")
         
         # Scheduler configuration
         post_times_str = os.environ.get('POST_TIMES', '08:00,12:00,16:00,20:00')
@@ -101,6 +113,10 @@ class Config:
             "twitter_api_secret": "***REDACTED***",
             "twitter_access_token": self.twitter_access_token[:4] + "..." if self.twitter_access_token else "",
             "twitter_access_token_secret": "***REDACTED***",
+            "twitter_bearer_token": "Set" if self.twitter_bearer_token else "Not Set",
+            "twitter_search_query": self.twitter_search_query,
+            "groq_api_key": "Set" if self.groq_api_key else "Not Set",
+            "groq_model": self.groq_model,
             "post_times": self.post_times,
             "timezone": self.timezone,
             "coingecko_api_url": self.coingecko_api_url,
