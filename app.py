@@ -969,16 +969,25 @@ def refresh_price():
         result = fetch_bitcoin_price()
         
         if result["success"]:
-            # Also update the stats cache
+            # --- FIX: Use cursor for DB query ---
+            latest_price = None # Initialize
             with get_db_connection() as conn:
-                latest_price = conn.execute(
-                    'SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1'
-                ).fetchone()
+                # Use RealDictCursor for dict access, consistent with other parts
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute(
+                    'SELECT timestamp FROM prices ORDER BY timestamp DESC LIMIT 1' # Only need timestamp
+                )
+                latest_price_row = cur.fetchone()
+                if latest_price_row:
+                    latest_price = latest_price_row # Store the whole row (or just timestamp)
+                cur.close()
+            # --- END FIX ---
             
             return jsonify({
                 'success': True,
                 'price': f"${result['price']:,.2f}",
                 'change': f"{result['price_change']:.2f}%",
+                # Access timestamp safely from the fetched row
                 'timestamp': latest_price['timestamp'] if latest_price else datetime.datetime.utcnow().isoformat()
             })
         else:
