@@ -657,6 +657,9 @@ def admin_panel():
 
     # --- ADDED: Get current bot status --- 
     current_bot_status = get_bot_status() 
+
+    # --- ADDED: Get scheduler config --- 
+    schedule_config = get_scheduler_config()
     
     # Render template
     return render_template('admin.html',
@@ -665,7 +668,8 @@ def admin_panel():
                            recent_posts=recent_posts,
                            recent_errors=recent_errors,
                            potential_news=potential_news,
-                           bot_status=current_bot_status # Pass bot_status to the template
+                           bot_status=current_bot_status, # Pass bot_status to the template
+                           schedule=schedule_config # Pass schedule config to the template
                            )
 
 @app.route('/admin/llm')
