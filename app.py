@@ -203,37 +203,32 @@ def get_recent_posts(limit=10):
         return [dict(post) for post in posts]
 
 def get_potential_news(limit=10):
-    """Get recent potential news tweets from the news_tweets table."""
+    """Get potential news tweets from the database (tweets marked as news)."""
     news_items = []
     try:
         with get_db_connection() as conn:
             cursor_factory = RealDictCursor if IS_POSTGRES else None
             cursor = conn.cursor(cursor_factory=cursor_factory)
-            
-            # Query news_tweets, filter by is_news=True (or 1 for SQLite), sort by score or publish time
-            # Assuming is_news is the primary flag set by the analyzer
-            is_news_filter = "is_news = TRUE" if IS_POSTGRES else "is_news = 1"
-            query = f"""
-            SELECT original_tweet_id, author, tweet_text, tweet_url, published_at, news_score, sentiment 
-            FROM news_tweets 
-            WHERE {is_news_filter} 
-            ORDER BY news_score DESC, published_at DESC 
-            LIMIT {'%s' if IS_POSTGRES else '?'};
+            query = """
+                SELECT * FROM news_tweets 
+                WHERE is_news = True 
+                ORDER BY fetched_at DESC 
+                LIMIT %s
+            """ if IS_POSTGRES else """
+                SELECT * FROM news_tweets 
+                WHERE is_news = 1 -- SQLite uses 1 for True
+                ORDER BY fetched_at DESC 
+                LIMIT ?
             """
-            
             cursor.execute(query, (limit,))
             news_items = cursor.fetchall()
             cursor.close()
-            logger.info(f"Fetched {len(news_items)} potential news tweets from DB.")
+            app.logger.info(f"Fetched {len(news_items)} potential news tweets from DB.")
     except Exception as e:
-        # Log the error but don't crash the app
-        logger.error(f"Error fetching potential news tweets: {e}", exc_info=True)
-        # Optionally check if table exists?
-        if "no such table" in str(e).lower() or ("relation" in str(e).lower() and "does not exist" in str(e).lower()):
-             logger.warning("'news_tweets' table might not exist yet.")
-        news_items = [] # Return empty list on error
-        
-    return [dict(item) for item in news_items]
+        app.logger.error(f"Error fetching potential news tweets: {e}", exc_info=True)
+        # Return empty list on error to avoid breaking the template
+        return []
+    return news_items
 
 def get_posts_paginated(page=1, per_page=10, date_from=None, date_to=None, content_type=None):
     """Get paginated posts with filtering"""
