@@ -743,10 +743,10 @@ def update_schedule():
     """
     Update the scheduler configuration (schedule times) in the database
     """
-    # schedule_times_str = request.form.get('schedule_times') # Original line
-    schedule_times_str = '14:00' # TEMPORARY: Hardcode for testing
-    app.logger.warning(f"TEMPORARY: Hardcoding schedule update to: {schedule_times_str}") # Add log
-    
+    schedule_times_str = request.form.get('schedule_times') # Restore original line
+    # schedule_times_str = '14:00' # TEMPORARY: Hardcode for testing - Remove this
+    # app.logger.warning(f"TEMPORARY: Hardcoding schedule update to: {schedule_times_str}") # Remove log
+
     if not schedule_times_str:
         flash('Schedule times cannot be empty.', 'danger')
         return redirect(url_for('admin_panel'))

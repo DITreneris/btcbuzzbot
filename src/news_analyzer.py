@@ -21,13 +21,14 @@ except ImportError as e:
     print(f"Error importing Database from src.database: {e}. NewsAnalyzer may fail.")
     Database = None # Placeholder
 
-try:
-    from src.config import Config # Import Config
-    CONFIG_CLASS_AVAILABLE = True
-except ImportError as e:
-    CONFIG_CLASS_AVAILABLE = False
-    print(f"Error importing Config from src.config: {e}. NewsAnalyzer may fail.")
-    Config = None
+# Remove Config import - no longer needed here
+# try:
+#     from src.config import Config # Import Config
+#     CONFIG_CLASS_AVAILABLE = True
+# except ImportError as e:
+#     CONFIG_CLASS_AVAILABLE = False
+#     print(f"Error importing Config from src.config: {e}. NewsAnalyzer may fail.")
+#     Config = None
 
 # --- Analysis Libraries ---
 # VADER Sentiment
@@ -53,23 +54,22 @@ logger = logging.getLogger(__name__)
 # --- Basic Analysis Parameters ---
 # Example keywords that might indicate news (simple approach)
 NEWS_KEYWORDS = ["breaking", "alert", "report", "announced", "launch", "partnership", "regulation", "sec", "etf", "fed"]
+DEFAULT_GROQ_MODEL = "llama3-8b-8192" # Define a default model
 
 class NewsAnalyzer:
-    def __init__(self):
-        self.db = None
-        self.config = None
+    # Modify __init__ to accept db_instance and read env vars directly
+    def __init__(self, db_instance: Optional[Database] = None):
+        self.db = db_instance
         self.vader_analyzer = None
         self.groq_client = None
+        self.groq_model = os.environ.get('GROQ_MODEL', DEFAULT_GROQ_MODEL)
         self.initialized = False
 
-        if not DATABASE_CLASS_AVAILABLE or not CONFIG_CLASS_AVAILABLE:
-            logger.error("NewsAnalyzer initialization failed: Database or Config class missing.")
+        if not self.db:
+            logger.error("NewsAnalyzer initialization failed: Database instance not provided.")
             return
-            
+
         try:
-            self.config = Config()
-            self.db = Database(db_path=self.config.sqlite_db_path)
-            
             # Initialize VADER
             if VADER_AVAILABLE:
                 self.vader_analyzer = SentimentIntensityAnalyzer()
@@ -77,10 +77,11 @@ class NewsAnalyzer:
             else:
                 logger.warning("VADER not available, skipping sentiment analysis.")
 
-            # Initialize Groq Client (Async)
-            if GROQ_AVAILABLE and self.config.groq_api_key:
-                self.groq_client = AsyncGroq(api_key=self.config.groq_api_key)
-                logger.info(f"Groq Async Client initialized for model: {self.config.groq_model}")
+            # Initialize Groq Client (Async) using environment variable
+            groq_api_key = os.environ.get('GROQ_API_KEY')
+            if GROQ_AVAILABLE and groq_api_key:
+                self.groq_client = AsyncGroq(api_key=groq_api_key)
+                logger.info(f"Groq Async Client initialized for model: {self.groq_model}")
             else:
                 logger.warning("Groq client not initialized (package missing or API key not set). LLM analysis disabled.")
 
@@ -106,13 +107,13 @@ class NewsAnalyzer:
         try:
             chat_completion = await self.groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
-                model=self.config.groq_model,
+                model=self.groq_model, # Use self.groq_model read from env
                 temperature=0.1, # Low temperature for classification
                 max_tokens=10,
             )
             response_text = chat_completion.choices[0].message.content.strip().upper()
             logger.debug(f"LLM Classification for '{text[:50]}...': {response_text}")
-            
+
             is_news = response_text.startswith("YES")
             # Simple confidence score based on YES/NO
             score = 1.0 if is_news else 0.1 # Assign low score if not news
@@ -127,11 +128,11 @@ class NewsAnalyzer:
             return None # LLM disabled
 
         prompt = f"Summarize the key information in the following tweet regarding Bitcoin in one concise sentence:\n\nTweet Text: \"{text}\"\n\nSummary:"
-        
+
         try:
             chat_completion = await self.groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
-                model=self.config.groq_model,
+                model=self.groq_model, # Use self.groq_model read from env
                 temperature=0.5,
                 max_tokens=100, # Allow more tokens for summary
             )
@@ -144,9 +145,10 @@ class NewsAnalyzer:
 
     async def analyze_tweets(self, tweets: List[Dict[str, Any]]):
         """Analyzes a batch of tweets and updates the DB with results."""
-        if not self.initialized or not self.db:
-            logger.error("NewsAnalyzer not initialized or DB unavailable.")
-            return
+        # Remove initialization check here, it's done in run_cycle
+        # if not self.initialized or not self.db:
+        #     logger.error("NewsAnalyzer not initialized or DB unavailable.")
+        #     return
 
         processed_count = 0
         updated_count = 0
@@ -225,29 +227,54 @@ class NewsAnalyzer:
         except Exception as e:
              logger.error(f"Error during LLM analysis task for {original_id}: {e}", exc_info=False)
 
-async def run_analysis_cycle():
-    """Runs a single cycle of fetching unprocessed tweets and analyzing them."""
-    analyzer = NewsAnalyzer()
-    if not analyzer.initialized or not analyzer.db:
-        logger.error("Cannot run analysis cycle: NewsAnalyzer failed to initialize or DB unavailable.")
-        return
-        
-    try:
-        logger.info("Starting news analysis cycle...")
-        # Fetch a batch of unprocessed tweets
-        # TODO: Make limit configurable?
-        unprocessed_tweets = await analyzer.db.get_unprocessed_news_tweets(limit=100)
-        
-        if unprocessed_tweets:
-            logger.info(f"Fetched {len(unprocessed_tweets)} tweets for analysis.")
-            await analyzer.analyze_tweets(unprocessed_tweets)
-        else:
-            logger.info("No unprocessed tweets found to analyze.")
-            
-        logger.info("News analysis cycle finished.")
+    # --- New run_cycle method --- 
+    async def run_cycle(self):
+        """Runs a single cycle of fetching unprocessed tweets and analyzing them using this instance."""
+        if not self.initialized or not self.db:
+            logger.error("Cannot run analysis cycle: NewsAnalyzer not initialized or DB unavailable.")
+            return
 
-    except Exception as e:
-        logger.error(f"Error during news analysis cycle execution: {e}", exc_info=True)
+        try:
+            logger.info("Starting news analysis cycle...")
+            # Fetch a batch of unprocessed tweets using self.db
+            unprocessed_tweets = await self.db.get_unprocessed_news_tweets(limit=100)
+
+            if unprocessed_tweets:
+                logger.info(f"Fetched {len(unprocessed_tweets)} tweets for analysis.")
+                # Call self.analyze_tweets
+                await self.analyze_tweets(unprocessed_tweets)
+            else:
+                logger.info("No unprocessed tweets found to analyze.")
+
+            logger.info("News analysis cycle finished.")
+
+        except Exception as e:
+            logger.error(f"Error during news analysis cycle execution: {e}", exc_info=True)
+
+# --- Remove standalone run_analysis_cycle function --- 
+# async def run_analysis_cycle():
+#     """Runs a single cycle of fetching unprocessed tweets and analyzing them."""
+#     analyzer = NewsAnalyzer()
+#     if not analyzer.initialized or not analyzer.db:
+#         logger.error("Cannot run analysis cycle: NewsAnalyzer failed to initialize or DB unavailable.")
+#         return
+#
+#     try:
+#         logger.info("Starting news analysis cycle...")
+#         # Fetch a batch of unprocessed tweets
+#         # TODO: Make limit configurable?
+#         unprocessed_tweets = await analyzer.db.get_unprocessed_news_tweets(limit=100)
+#
+#         if unprocessed_tweets:
+#             logger.info(f"Fetched {len(unprocessed_tweets)} tweets for analysis.")
+#             await analyzer.analyze_tweets(unprocessed_tweets)
+#         else:
+#             logger.info("No unprocessed tweets found to analyze.")
+#
+#         logger.info("News analysis cycle finished.")
+#
+#     except Exception as e:
+#         logger.error(f"Error during news analysis cycle execution: {e}", exc_info=True)
 
 if __name__ == '__main__':
     # Basic test execution if run directly

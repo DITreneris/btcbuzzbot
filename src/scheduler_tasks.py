@@ -39,18 +39,22 @@ except ImportError as e:
     tweet_handler = PlaceholderTweetHandler()
 
 try:
-    from src.news_fetcher import run_fetch_cycle
-    NEWS_FETCHER_AVAILABLE = True
+    # Import the class, not the run_ function
+    from src.news_fetcher import NewsFetcher # Import the class
+    NEWS_FETCHER_CLASS_AVAILABLE = True
 except ImportError as e:
-    NEWS_FETCHER_AVAILABLE = False
-    print(f"Warning: Could not import src.news_fetcher: {e} - News fetching disabled.")
+    NEWS_FETCHER_CLASS_AVAILABLE = False
+    print(f"Warning: Could not import NewsFetcher class from src.news_fetcher: {e} - News fetching disabled.")
+    NewsFetcher = None # Placeholder
 
 try:
-    from src.news_analyzer import run_analysis_cycle
-    NEWS_ANALYZER_AVAILABLE = True
+    # Import the class, not the run_ function
+    from src.news_analyzer import NewsAnalyzer # Import the class
+    NEWS_ANALYZER_CLASS_AVAILABLE = True
 except ImportError as e:
-    NEWS_ANALYZER_AVAILABLE = False
-    print(f"Warning: Could not import src.news_analyzer: {e} - News analysis disabled.")
+    NEWS_ANALYZER_CLASS_AVAILABLE = False
+    print(f"Warning: Could not import NewsAnalyzer class from src.news_analyzer: {e} - News analysis disabled.")
+    NewsAnalyzer = None # Placeholder
 
 # --- Constants & Config ---
 TWEET_JOB_ID_PREFIX = 'scheduled_tweet_'
@@ -61,17 +65,44 @@ SCHEDULER_TIMEZONE = pytz.utc # Should match engine timezone
 # Basic logger for tasks - might be refined by engine's config
 logger = logging.getLogger('btcbuzzbot.scheduler.tasks')
 
-# --- Database Instance --- 
+# --- Shared Instances ---
 # Initialize DB instance for use within tasks
 db_instance = None
 if DATABASE_CLASS_AVAILABLE:
     try:
-        db_instance = Database(db_path=DB_PATH)
+        # Note: Database() might need config passed or read env vars itself
+        db_instance = Database() # Assuming Database() reads DATABASE_URL etc.
         logger.info("Task DB instance initialized.")
     except Exception as db_init_e:
         logger.error(f"Failed to initialize Task DB instance: {db_init_e}", exc_info=True)
 else:
     logger.error("Task DB functions will fail: Database class not available.")
+
+# Initialize News Fetcher instance
+news_fetcher_instance = None
+if NEWS_FETCHER_CLASS_AVAILABLE:
+    try:
+        # NewsFetcher likely needs API keys, potentially DB access
+        # Assuming it reads from env vars or a config object internally
+        news_fetcher_instance = NewsFetcher(db_instance=db_instance) # Pass db if needed
+        logger.info("Task NewsFetcher instance initialized.")
+    except Exception as fetcher_init_e:
+        logger.error(f"Failed to initialize Task NewsFetcher instance: {fetcher_init_e}", exc_info=True)
+else:
+    logger.warning("News Fetcher instance not created: Class not available.")
+
+# Initialize News Analyzer instance
+news_analyzer_instance = None
+if NEWS_ANALYZER_CLASS_AVAILABLE:
+    try:
+        # NewsAnalyzer likely needs API keys, VADER, potentially DB access
+        # Assuming it reads from env vars or a config object internally
+        news_analyzer_instance = NewsAnalyzer(db_instance=db_instance) # Pass db if needed
+        logger.info("Task NewsAnalyzer instance initialized.")
+    except Exception as analyzer_init_e:
+        logger.error(f"Failed to initialize Task NewsAnalyzer instance: {analyzer_init_e}", exc_info=True)
+else:
+    logger.warning("News Analyzer instance not created: Class not available.")
 
 # --- Utility Functions --- 
 async def log_status_to_db(status: str, message: str):
@@ -152,38 +183,34 @@ async def post_tweet_and_log():
         return False
 
 async def run_news_fetch_wrapper():
-    """Async wrapper to run the news fetch cycle."""
-    if not NEWS_FETCHER_AVAILABLE:
-        logger.warning("News fetcher not available, skipping fetch.")
+    """Async wrapper to run the news fetch cycle using the shared instance."""
+    if not news_fetcher_instance:
+        logger.warning("News fetcher instance not available, skipping fetch.")
         return
-    logger.info("Executing task: run_news_fetch_wrapper")
-    success = False
+    logger.info("Executing task: run_news_fetch_wrapper (using shared instance)")
     try:
-        # run_fetch_cycle should handle its own DB interaction and internal errors
-        await run_fetch_cycle()
-        # If run_fetch_cycle completes without raising an exception, assume basic success
-        success = True
-        logger.info("News fetch cycle task completed.") # Simplified message
+        # Assuming NewsFetcher has a method like run_cycle() or fetch_and_store()
+        # We might need to adjust NewsFetcher class later if this method doesn't exist
+        await news_fetcher_instance.run_cycle() # Or appropriate method name
+        logger.info("News fetch cycle task completed via shared instance.")
     except Exception as e:
-        # Log error if the wrapper itself encounters an issue calling run_fetch_cycle
-        logger.error(f"Error during news fetch cycle task execution: {e}", exc_info=True)
+        logger.error(f"Error during news fetch cycle task execution (shared instance): {e}", exc_info=True)
         await log_status_to_db("Error", f"News fetch cycle task failed: {e}")
-    # finally: # Optional: Log completion regardless of success/failure?
-    #     logger.info("run_news_fetch_wrapper finished.")
 
-async def run_analysis_cycle_wrapper(): # Renamed to avoid conflict if imported directly
-    """Async wrapper to run the news analysis cycle."""
-    if not NEWS_ANALYZER_AVAILABLE:
-        logger.warning("News analyzer not available, skipping analysis.")
+async def run_analysis_cycle_wrapper():
+    """Async wrapper to run the news analysis cycle using the shared instance."""
+    if not news_analyzer_instance:
+        logger.warning("News analyzer instance not available, skipping analysis.")
         return
-    logger.info("Executing task: run_analysis_cycle_wrapper")
+    logger.info("Executing task: run_analysis_cycle_wrapper (using shared instance)")
     try:
-        # run_analysis_cycle should handle its own DB interaction
-        await run_analysis_cycle()
-        logger.info("News analysis cycle completed successfully by task.")
+        # Assuming NewsAnalyzer has a method like run_cycle()
+        # We will create this method in NewsAnalyzer based on the old run_analysis_cycle function
+        await news_analyzer_instance.run_cycle()
+        logger.info("News analysis cycle completed successfully via shared instance.")
     except Exception as e:
-        logger.error(f"Error during news analysis cycle task: {e}", exc_info=True)
-        log_status_to_db("Error", f"News analysis cycle task failed: {e}")
+        logger.error(f"Error during news analysis cycle task (shared instance): {e}", exc_info=True)
+        await log_status_to_db("Error", f"News analysis cycle task failed: {e}")
 
 
 async def reschedule_tweet_jobs(scheduler):
@@ -265,7 +292,7 @@ def trigger_post_tweet():
 
 async def trigger_fetch_news():
     print("Manually triggering news fetch...")
-    if NEWS_FETCHER_AVAILABLE:
+    if NEWS_FETCHER_CLASS_AVAILABLE:
         try:
             await run_news_fetch_wrapper()
             print("Manual news fetch completed.")
@@ -279,7 +306,7 @@ async def trigger_fetch_news():
 
 async def trigger_analyze_news():
     print("Manually triggering news analysis...")
-    if NEWS_ANALYZER_AVAILABLE:
+    if NEWS_ANALYZER_CLASS_AVAILABLE:
         try:
             await run_analysis_cycle_wrapper()
             print("Manual news analysis completed.")
