@@ -236,8 +236,8 @@ class NewsAnalyzer:
 
         try:
             logger.info("Starting news analysis cycle...")
-            # Fetch a batch of unprocessed tweets using self.db
-            unprocessed_tweets = await self.db.get_unprocessed_news_tweets(limit=100)
+            # Fetch a smaller batch of unprocessed tweets to reduce Groq load
+            unprocessed_tweets = await self.db.get_unprocessed_news_tweets(limit=30) # Reduced limit from 100
 
             if unprocessed_tweets:
                 logger.info(f"Fetched {len(unprocessed_tweets)} tweets for analysis.")

@@ -113,12 +113,13 @@ def create_scheduler():
         scheduler.add_job(
             run_news_fetch_wrapper, # Async wrapper from tasks
             trigger='interval',
-            minutes=15, 
+            # Increase interval to reduce Twitter rate limit issues
+            minutes=60,
             id=NEWS_FETCH_JOB_ID,
             name='Fetch News Tweets',
             replace_existing=True
         )
-        logger.info("News fetching job added (default asyncio executor).")
+        logger.info("News fetching job added (interval: 60 minutes).") # Updated log
     else:
         logger.warning("News fetching job NOT added: Task not available.")
 
@@ -127,12 +128,13 @@ def create_scheduler():
         scheduler.add_job(
             run_analysis_cycle_wrapper, # Async wrapper from tasks
             trigger='interval',
-            minutes=5, 
+            # Increase interval to reduce Groq rate limit issues
+            minutes=30,
             id=NEWS_ANALYZE_JOB_ID,
             name='Analyze News Tweets',
             replace_existing=True
         )
-        logger.info("News analysis job added (default asyncio executor).")
+        logger.info("News analysis job added (interval: 30 minutes).") # Updated log
     else:
         logger.warning("News analysis job NOT added: Task not available.")
 
