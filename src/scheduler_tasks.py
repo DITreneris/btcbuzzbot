@@ -89,10 +89,10 @@ async def log_status_to_db(status: str, message: str):
         print(f"CRITICAL: Failed to log bot status to DB: {e}")
 
 # --- Task Functions --- 
-def post_tweet_and_log():
+async def post_tweet_and_log():
     """Posts a tweet using the tweet_handler and logs the result."""
     if not TWEET_HANDLER_AVAILABLE or not db_instance:
-        log_status_to_db("Error", "Tweet handler or DB not available for posting.")
+        await log_status_to_db("Error", "Tweet handler or DB not available for posting.")
         logger.error("Cannot post tweet: Tweet handler or DB instance not available.")
         return False
 
@@ -109,16 +109,20 @@ def post_tweet_and_log():
         content_data = None
         
         if chosen_type == 'quote':
-            content_data = asyncio.run(db_instance.get_random_content('quotes'))
+            logger.debug("Attempting to fetch random quote...")
+            content_data = await db_instance.get_random_content('quotes')
             if content_data:
                 tweet_content = content_data.get('text', '')
+                logger.info(f"Fetched quote: {tweet_content[:50]}...")
             else:
                 logger.warning("Could not get random quote, falling back to price.")
                 chosen_type = 'price' # Fallback if no quote found
         elif chosen_type == 'joke':
-            content_data = asyncio.run(db_instance.get_random_content('jokes'))
+            logger.debug("Attempting to fetch random joke...")
+            content_data = await db_instance.get_random_content('jokes')
             if content_data:
                 tweet_content = content_data.get('text', '')
+                logger.info(f"Fetched joke: {tweet_content[:50]}...")
             else:
                 logger.warning("Could not get random joke, falling back to price.")
                 chosen_type = 'price' # Fallback if no joke found
@@ -127,25 +131,23 @@ def post_tweet_and_log():
         logger.info(f"Selected content type: {chosen_type}")
         
         # --- Call the tweet handler --- 
-        # tweet_handler.post_tweet is an async wrapper calling an async method,
-        # but the wrapper itself might be synchronous or manage the loop.
-        # Let's assume the existing synchronous wrapper call is intended here.
-        result = tweet_handler.post_tweet(tweet_content, content_type=chosen_type) 
+        logger.debug(f"Calling tweet_handler.post_tweet with type '{chosen_type}' and content: '{tweet_content[:50]}...'")
+        result = await tweet_handler.post_tweet(tweet_content, content_type=chosen_type) 
 
         if isinstance(result, dict) and result.get('success', False):
              # Logging is handled within tweet_handler now, but we log overall success
-             log_status_to_db("Running", f"Scheduled tweet ({chosen_type}) posted successfully ({result.get('tweet_id', 'N/A')})")
+             await log_status_to_db("Running", f"Scheduled tweet ({chosen_type}) posted successfully ({result.get('tweet_id', 'N/A')})")
              logger.info(f"Scheduled tweet ({chosen_type}) posted successfully: ID {result.get('tweet_id', 'N/A')}")
              return True
         else:
              error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
-             log_status_to_db("Error", f"Failed to post scheduled {chosen_type} tweet: {error_msg}")
+             await log_status_to_db("Error", f"Failed to post scheduled {chosen_type} tweet: {error_msg}")
              logger.error(f"Failed to post scheduled {chosen_type} tweet via tweet_handler: {error_msg}")
              return False
 
     except Exception as e:
         error_msg = f"Critical error in post_tweet_and_log task: {str(e)}"
-        log_status_to_db("Error", error_msg)
+        await log_status_to_db("Error", error_msg)
         logger.error(error_msg, exc_info=True)
         return False
 
