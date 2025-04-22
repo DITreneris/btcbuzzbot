@@ -129,11 +129,6 @@ function refreshBitcoinPrice(showAnimation = true) {
                 if (chartCanvas && window.priceChart) {
                     initializePriceChart();
                 }
-                
-                // Reload the page after a successful price fetch to update server-side data
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000);
             } else {
                 console.error('Error refreshing price:', data.error);
                 if (errorMsgElement) {
