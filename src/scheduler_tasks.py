@@ -283,14 +283,7 @@ async def reschedule_tweet_jobs(scheduler):
                         executor='default' # Assumes a 'default' ThreadPoolExecutor exists
                     )
 
-                    # --- Debugging: Log after replacement --- 
-                    updated_job = scheduler.get_job(job_id)
-                    if updated_job:
-                        logger.debug(f"Reschedule DBG: Job {job_id} added/updated. Next run: {updated_job.next_run_time}. Trigger: {updated_job.trigger}")
-                    else:
-                        # This should ideally not happen if add_job succeeded
-                        logger.warning(f"Reschedule DBG: Job {job_id} not found immediately after add_job call!")
-                    # --- End Debugging ---
+                    # --- Debugging: Log after replacement --- \n                    updated_job = scheduler.get_job(job_id)\n                    if updated_job:\n                        # logger.debug(f"Reschedule DBG: Job {job_id} added/updated. Next run: {updated_job.next_run_time}. Trigger: {updated_job.trigger}") # Causes AttributeError\n                        logger.debug(f"Reschedule DBG: Job {job_id} found after add_job call. Trigger: {updated_job.trigger}") # Log trigger only\n                    else:\n                        # This should ideally not happen if add_job succeeded\n                        logger.warning(f"Reschedule DBG: Job {job_id} not found immediately after add_job call!")\n                    # --- End Debugging ---\n
 
                     logger.info(f"Reschedule task ensured job exists/updated: {job_id}")
 
