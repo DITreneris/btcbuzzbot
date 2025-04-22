@@ -28,8 +28,8 @@ try:
         run_news_fetch_wrapper, 
         run_analysis_cycle_wrapper, 
         reschedule_tweet_jobs, 
-        NEWS_FETCHER_AVAILABLE, 
-        NEWS_ANALYZER_AVAILABLE,
+        NEWS_FETCHER_CLASS_AVAILABLE,
+        NEWS_ANALYZER_CLASS_AVAILABLE,
         TWEET_JOB_ID_PREFIX, # Need prefix for logging
         log_status_to_db # Use the task module's logger utility
     )
@@ -38,8 +38,8 @@ except ImportError as e:
     print(f"FATAL: Failed to import tasks from src.scheduler_tasks: {e}. Engine cannot run.")
     TASKS_AVAILABLE = False
     # Define placeholders if needed to prevent NameErrors later, though logic should check TASKS_AVAILABLE
-    NEWS_FETCHER_AVAILABLE = False
-    NEWS_ANALYZER_AVAILABLE = False
+    NEWS_FETCHER_CLASS_AVAILABLE = False
+    NEWS_ANALYZER_CLASS_AVAILABLE = False
     TWEET_JOB_ID_PREFIX = 'scheduled_tweet_'
     def log_status_to_db(*args, **kwargs): pass # No-op
 
@@ -109,7 +109,7 @@ def create_scheduler():
     )
 
     # 2. Job to fetch news periodically (if available)
-    if NEWS_FETCHER_AVAILABLE:
+    if NEWS_FETCHER_CLASS_AVAILABLE:
         scheduler.add_job(
             run_news_fetch_wrapper, # Async wrapper from tasks
             trigger='interval',
@@ -123,7 +123,7 @@ def create_scheduler():
         logger.warning("News fetching job NOT added: Task not available.")
 
     # 3. Job to analyze fetched news periodically (if available)
-    if NEWS_ANALYZER_AVAILABLE:
+    if NEWS_ANALYZER_CLASS_AVAILABLE:
         scheduler.add_job(
             run_analysis_cycle_wrapper, # Async wrapper from tasks
             trigger='interval',
