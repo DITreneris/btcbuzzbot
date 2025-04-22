@@ -360,106 +360,94 @@ def fetch_bitcoin_price():
 
 def get_basic_stats():
     """Get basic statistics about the bot"""
-    with get_db_connection() as conn:
-        cursor_factory = RealDictCursor if IS_POSTGRES else None
-        cursor = conn.cursor(cursor_factory=cursor_factory)
-        
-        param_placeholder = "%s" if IS_POSTGRES else "?"
-        
-        cursor.execute('SELECT COUNT(*) FROM posts')
-        total_posts_result = cursor.fetchone()
-        total_posts = total_posts_result['count'] if total_posts_result else 0
-        
-        cursor.execute('SELECT COUNT(*) FROM quotes')
-        total_quotes_result = cursor.fetchone()
-        total_quotes = total_quotes_result['count'] if total_quotes_result else 0
-        
-        cursor.execute('SELECT COUNT(*) FROM jokes')
-        total_jokes_result = cursor.fetchone()
-        total_jokes = total_jokes_result['count'] if total_jokes_result else 0
-        
-        # Average engagement
-        cursor.execute('SELECT AVG(likes) FROM posts')
-        avg_likes_result = cursor.fetchone()
-        avg_likes = 0
-        if avg_likes_result:
-            avg_likes_val = avg_likes_result[0] if not IS_POSTGRES else avg_likes_result.get('avg')
-            if avg_likes_val is not None:
-                avg_likes = avg_likes_val
-        
-        cursor.execute('SELECT AVG(retweets) FROM posts')
-        avg_retweets_result = cursor.fetchone()
-        avg_retweets = 0
-        if avg_retweets_result:
-            avg_retweets_val = avg_retweets_result[0] if not IS_POSTGRES else avg_retweets_result.get('avg')
-            if avg_retweets_val is not None:
-                avg_retweets = avg_retweets_val
-        
-        # Most recent price
-        query = "SELECT price, timestamp FROM btc_price_data ORDER BY timestamp DESC LIMIT 1"
-        if IS_POSTGRES:
-            # --- FIX: Use cursor for PostgreSQL ---
-            # Use RealDictCursor for dict access, like other parts of the app
-            cur = conn.cursor(cursor_factory=RealDictCursor) 
-            cur.execute(query)
-            latest_price_row = cur.fetchone()
-            # We'll reuse the cursor 'cur' below, so don't close it yet
-            # --- END FIX ---
-        else: # SQLite
-            cursor = conn.cursor() # Correct for SQLite
-            cursor.execute(query) # Use the cursor variable
+    # Initialize default values
+    stats = {
+        'total_posts': 0,
+        'total_quotes': 0,
+        'total_jokes': 0,
+        'avg_likes': 0,
+        'avg_retweets': 0,
+        'latest_price': None,
+        'price_change': 0,
+        'last_updated': None
+    }
+
+    try:
+        with get_db_connection() as conn:
+            cursor_factory = RealDictCursor if IS_POSTGRES else None
+            # Use 'cursor' consistently now, define it once
+            cursor = conn.cursor(cursor_factory=cursor_factory) 
+            
+            param_placeholder = "%s" if IS_POSTGRES else "?"
+            
+            # Totals
+            cursor.execute('SELECT COUNT(*) FROM posts')
+            total_posts_result = cursor.fetchone()
+            stats['total_posts'] = total_posts_result['count'] if total_posts_result else 0
+            
+            cursor.execute('SELECT COUNT(*) FROM quotes')
+            total_quotes_result = cursor.fetchone()
+            stats['total_quotes'] = total_quotes_result['count'] if total_quotes_result else 0
+            
+            cursor.execute('SELECT COUNT(*) FROM jokes')
+            total_jokes_result = cursor.fetchone()
+            stats['total_jokes'] = total_jokes_result['count'] if total_jokes_result else 0
+            
+            # Average engagement
+            cursor.execute('SELECT AVG(likes) FROM posts')
+            avg_likes_result = cursor.fetchone()
+            avg_likes = 0
+            if avg_likes_result:
+                avg_likes_val = avg_likes_result[0] if not IS_POSTGRES else avg_likes_result.get('avg')
+                if avg_likes_val is not None:
+                    avg_likes = avg_likes_val
+            stats['avg_likes'] = round(avg_likes, 1)
+            
+            cursor.execute('SELECT AVG(retweets) FROM posts')
+            avg_retweets_result = cursor.fetchone()
+            avg_retweets = 0
+            if avg_retweets_result:
+                avg_retweets_val = avg_retweets_result[0] if not IS_POSTGRES else avg_retweets_result.get('avg')
+                if avg_retweets_val is not None:
+                    avg_retweets = avg_retweets_val
+            stats['avg_retweets'] = round(avg_retweets, 1)
+            
+            # Most recent price & change calculation
+            latest_price = None
+            prev_price = None
+            last_updated = None
+            price_change = 0
+
+            query_latest = "SELECT price, timestamp FROM btc_price_data ORDER BY timestamp DESC LIMIT 1"
+            cursor.execute(query_latest)
             latest_price_row = cursor.fetchone()
-            cursor.close() # Close SQLite cursor
 
-        if latest_price_row:
-            latest_price = latest_price_row['price']
-            last_updated = latest_price_row['timestamp']
-            
-            # Fetch second latest price for change calculation
-            query_prev = "SELECT price FROM btc_price_data ORDER BY timestamp DESC LIMIT 1 OFFSET 1"
-            if IS_POSTGRES:
-                 # --- FIX: Use the existing cursor 'cur' ---
-                cur.execute(query_prev)
-                prev_price_row = cur.fetchone()
-                cur.close() # Now close the cursor after both queries
-                # --- END FIX ---
-            else: # SQLite
-                cursor = conn.cursor() # Correct for SQLite
-                cursor.execute(query_prev) # Use the cursor variable
+            if latest_price_row:
+                latest_price = latest_price_row['price']
+                last_updated = latest_price_row['timestamp']
+                
+                query_prev = "SELECT price FROM btc_price_data ORDER BY timestamp DESC LIMIT 1 OFFSET 1"
+                cursor.execute(query_prev)
                 prev_price_row = cursor.fetchone()
-                cursor.close() # Close SQLite cursor
 
-            if prev_price_row:
-                prev_price = prev_price_row['price']
-                price_change = ((latest_price - prev_price) / prev_price) * 100
-            else:
-                price_change = 0
+                if prev_price_row:
+                    prev_price = prev_price_row['price']
+                    # Ensure prices are not None and prev_price is not zero before dividing
+                    if latest_price is not None and prev_price is not None and prev_price != 0:
+                         price_change = ((latest_price - prev_price) / prev_price) * 100
             
-            cursor.close()
-            result = {
-                'total_posts': total_posts,
-                'total_quotes': total_quotes,
-                'total_jokes': total_jokes,
-                'avg_likes': round(avg_likes, 1),
-                'avg_retweets': round(avg_retweets, 1),
-                'latest_price': latest_price,
-                'price_change': price_change,
-                'last_updated': last_updated
-            }
-            
-            return result
+            # Update stats dictionary with price info
+            stats['latest_price'] = latest_price
+            stats['price_change'] = price_change
+            stats['last_updated'] = last_updated
+                
+            cursor.close() # Close cursor after all queries
+
     except Exception as e:
         print(f"Error getting basic stats: {e}")
-        return {
-            'total_posts': 0,
-            'total_quotes': 0,
-            'total_jokes': 0,
-            'avg_likes': 0,
-            'avg_retweets': 0,
-            'latest_price': None,
-            'price_change': 0,
-            'last_updated': None
-        }
+        # Return the initialized stats (with Nones/zeros) on error
+
+    return stats # Return the stats dict (populated or default)
 
 def get_recent_errors(limit=5):
     """Get recent error logs"""
