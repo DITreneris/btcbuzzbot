@@ -265,6 +265,14 @@ async def reschedule_tweet_jobs(scheduler):
 
                     trigger = CronTrigger(hour=hour, minute=minute, timezone=SCHEDULER_TIMEZONE)
 
+                    # --- Debugging: Log before replacement --- 
+                    existing_job = scheduler.get_job(job_id)
+                    if existing_job:
+                        logger.debug(f"Reschedule DBG: Job {job_id} exists. Next run: {existing_job.next_run_time}. Trigger: {existing_job.trigger}")
+                    else:
+                        logger.debug(f"Reschedule DBG: Job {job_id} does not exist, will be added.")
+                    # --- End Debugging ---
+
                     scheduler.add_job(
                         post_tweet_and_log,
                         trigger=trigger,
@@ -274,6 +282,16 @@ async def reschedule_tweet_jobs(scheduler):
                         misfire_grace_time=60,
                         executor='default' # Assumes a 'default' ThreadPoolExecutor exists
                     )
+
+                    # --- Debugging: Log after replacement --- 
+                    updated_job = scheduler.get_job(job_id)
+                    if updated_job:
+                        logger.debug(f"Reschedule DBG: Job {job_id} added/updated. Next run: {updated_job.next_run_time}. Trigger: {updated_job.trigger}")
+                    else:
+                        # This should ideally not happen if add_job succeeded
+                        logger.warning(f"Reschedule DBG: Job {job_id} not found immediately after add_job call!")
+                    # --- End Debugging ---
+
                     logger.info(f"Reschedule task ensured job exists/updated: {job_id}")
 
                 except ValueError:
