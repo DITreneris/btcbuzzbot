@@ -27,16 +27,13 @@ except ImportError as e:
     Database = None # Placeholder
 
 try:
-    from src import tweet_handler
-    TWEET_HANDLER_AVAILABLE = True
-except ImportError as e:
-    TWEET_HANDLER_AVAILABLE = False
-    print(f"Warning: Could not import src.tweet_handler: {e}. Tweet posting task may fail.")
-    class PlaceholderTweetHandler:
-        def post_tweet(self, *args, **kwargs):
-            logger.error("Tweet handler not available.")
-            return {'success': False, 'error': 'Tweet handler not available'}
-    tweet_handler = PlaceholderTweetHandler()
+    from src import tweet_handler as tweet_handler_module # Import the module
+    TweetHandler = tweet_handler_module.TweetHandler # Get the class
+    TWEET_HANDLER_CLASS_AVAILABLE = True
+except (ImportError, AttributeError) as e:
+    TWEET_HANDLER_CLASS_AVAILABLE = False
+    print(f"Warning: Could not import TweetHandler class from src.tweet_handler: {e}. Tweet posting task may fail.")
+    TweetHandler = None # Placeholder class
 
 try:
     # Import the class, not the run_ function
@@ -104,6 +101,21 @@ if NEWS_ANALYZER_CLASS_AVAILABLE:
 else:
     logger.warning("News Analyzer instance not created: Class not available.")
 
+# Initialize Tweet Handler instance
+tweet_handler_instance = None
+if TWEET_HANDLER_CLASS_AVAILABLE and db_instance:
+    try:
+        # Assuming TweetHandler needs db_instance and reads API keys from env
+        tweet_handler_instance = TweetHandler(db_instance=db_instance)
+        logger.info("Task TweetHandler instance initialized.")
+    except Exception as handler_init_e:
+        logger.error(f"Failed to initialize Task TweetHandler instance: {handler_init_e}", exc_info=True)
+else:
+    if not TWEET_HANDLER_CLASS_AVAILABLE:
+        logger.warning("Tweet Handler instance not created: Class not available.")
+    elif not db_instance:
+        logger.warning("Tweet Handler instance not created: DB instance not available.")
+
 # --- Utility Functions --- 
 async def log_status_to_db(status: str, message: str):
     """Helper to log bot status updates to the database."""
@@ -121,10 +133,11 @@ async def log_status_to_db(status: str, message: str):
 
 # --- Task Functions --- 
 async def post_tweet_and_log():
-    """Posts a tweet using the tweet_handler and logs the result."""
-    if not TWEET_HANDLER_AVAILABLE or not db_instance:
+    """Posts a tweet using the shared tweet_handler instance and logs the result."""
+    # Use the shared instance
+    if not tweet_handler_instance:
         await log_status_to_db("Error", "Tweet handler or DB not available for posting.")
-        logger.error("Cannot post tweet: Tweet handler or DB instance not available.")
+        logger.error("Cannot post tweet: Tweet handler instance not available.")
         return False
 
     try:
@@ -161,9 +174,10 @@ async def post_tweet_and_log():
         # If chosen_type is still 'price' (or fallback), tweet_content remains ""
         logger.info(f"Selected content type: {chosen_type}")
         
-        # --- Call the tweet handler --- 
-        logger.debug(f"Calling tweet_handler.post_tweet with type '{chosen_type}' and content: '{tweet_content[:50]}...'")
-        result = await tweet_handler.post_tweet(tweet_content, content_type=chosen_type) 
+        # --- Call the tweet handler instance --- 
+        logger.debug(f"Calling tweet_handler_instance.post_tweet with type '{chosen_type}' and content: '{tweet_content[:50]}...'")
+        # Call the method on the instance
+        result = await tweet_handler_instance.post_tweet(tweet_content, content_type=chosen_type)
 
         if isinstance(result, dict) and result.get('success', False):
              # Logging is handled within tweet_handler now, but we log overall success
