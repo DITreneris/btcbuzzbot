@@ -113,13 +113,14 @@ def create_scheduler():
         scheduler.add_job(
             run_news_fetch_wrapper, # Async wrapper from tasks
             trigger='interval',
-            # Increase interval to reduce Twitter rate limit issues
-            minutes=60,
+            minutes=120,  # Changed from 60 to 120
             id=NEWS_FETCH_JOB_ID,
             name='Fetch News Tweets',
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=300, # 5 minutes
+            executor='default'
         )
-        logger.info("News fetching job added (interval: 60 minutes).") # Updated log
+        logger.info("News fetching job added (interval: 120 minutes).") # Updated log message
     else:
         logger.warning("News fetching job NOT added: Task not available.")
 
