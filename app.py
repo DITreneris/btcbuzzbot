@@ -396,37 +396,70 @@ def get_basic_stats():
                 avg_retweets = avg_retweets_val
         
         # Most recent price
-        cursor.execute('SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1')
-        latest_price_row = cursor.fetchone()
-        latest_price = dict(latest_price_row) if latest_price_row else None
-        
-        cursor.close()
-        # If we don't have a price yet, fetch one now
-        if not latest_price:
-            price_data = fetch_bitcoin_price()
-            if price_data["success"]:
-                # Try to get the price again after fetch
-                latest_price = conn.execute(
-                    'SELECT * FROM prices ORDER BY timestamp DESC LIMIT 1'
-                ).fetchone()
-                
-        result = {
-            'total_posts': total_posts,
-            'total_quotes': total_quotes,
-            'total_jokes': total_jokes,
-            'avg_likes': round(avg_likes, 1),
-            'avg_retweets': round(avg_retweets, 1),
-            'latest_price': dict(latest_price) if latest_price else None
+        query = "SELECT price, timestamp FROM btc_price_data ORDER BY timestamp DESC LIMIT 1"
+        if IS_POSTGRES:
+            # --- FIX: Use cursor for PostgreSQL ---
+            # Use RealDictCursor for dict access, like other parts of the app
+            cur = conn.cursor(cursor_factory=RealDictCursor) 
+            cur.execute(query)
+            latest_price_row = cur.fetchone()
+            # We'll reuse the cursor 'cur' below, so don't close it yet
+            # --- END FIX ---
+        else: # SQLite
+            cursor = conn.cursor() # Correct for SQLite
+            cursor.execute(query) # Use the cursor variable
+            latest_price_row = cursor.fetchone()
+            cursor.close() # Close SQLite cursor
+
+        if latest_price_row:
+            latest_price = latest_price_row['price']
+            last_updated = latest_price_row['timestamp']
+            
+            # Fetch second latest price for change calculation
+            query_prev = "SELECT price FROM btc_price_data ORDER BY timestamp DESC LIMIT 1 OFFSET 1"
+            if IS_POSTGRES:
+                 # --- FIX: Use the existing cursor 'cur' ---
+                cur.execute(query_prev)
+                prev_price_row = cur.fetchone()
+                cur.close() # Now close the cursor after both queries
+                # --- END FIX ---
+            else: # SQLite
+                cursor = conn.cursor() # Correct for SQLite
+                cursor.execute(query_prev) # Use the cursor variable
+                prev_price_row = cursor.fetchone()
+                cursor.close() # Close SQLite cursor
+
+            if prev_price_row:
+                prev_price = prev_price_row['price']
+                price_change = ((latest_price - prev_price) / prev_price) * 100
+            else:
+                price_change = 0
+            
+            cursor.close()
+            result = {
+                'total_posts': total_posts,
+                'total_quotes': total_quotes,
+                'total_jokes': total_jokes,
+                'avg_likes': round(avg_likes, 1),
+                'avg_retweets': round(avg_retweets, 1),
+                'latest_price': latest_price,
+                'price_change': price_change,
+                'last_updated': last_updated
+            }
+            
+            return result
+    except Exception as e:
+        print(f"Error getting basic stats: {e}")
+        return {
+            'total_posts': 0,
+            'total_quotes': 0,
+            'total_jokes': 0,
+            'avg_likes': 0,
+            'avg_retweets': 0,
+            'latest_price': None,
+            'price_change': 0,
+            'last_updated': None
         }
-        
-        # Add price_change to stats if we have a price
-        if latest_price and 'price_change' not in result:
-            # Try to get the latest bitcoin price with change data
-            price_data = fetch_bitcoin_price()
-            if price_data["success"]:
-                result['price_change'] = price_data["price_change"]
-        
-        return result
 
 def get_recent_errors(limit=5):
     """Get recent error logs"""
