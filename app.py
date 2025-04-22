@@ -654,6 +654,9 @@ def admin_panel():
 
     # --- NEW: Get potential news tweets ---
     potential_news = get_potential_news(limit=10)
+
+    # --- ADDED: Get current bot status --- 
+    current_bot_status = get_bot_status() 
     
     # Render template
     return render_template('admin.html',
@@ -661,7 +664,8 @@ def admin_panel():
                            price_history=price_data,
                            recent_posts=recent_posts,
                            recent_errors=recent_errors,
-                           potential_news=potential_news # Pass news data to template
+                           potential_news=potential_news,
+                           bot_status=current_bot_status # Pass bot_status to the template
                            )
 
 @app.route('/admin/llm')
