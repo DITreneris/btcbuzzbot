@@ -133,8 +133,8 @@ class TweetHandler:
             logger.debug(f"TweetHandler: Price data fetched: ${current_price:,.2f}, Change: {price_change_24h:.2f}%")
 
 
-            # Store the new price in the database
-            await self.db.store_price(current_price, price_change=price_change_24h)
+            # Store the new price in the database - ONLY pass price now
+            await self.db.store_price(current_price) # REMOVED price_change argument
             logger.debug("TweetHandler: Price stored in DB.")
 
             # Format the tweet using helper method
