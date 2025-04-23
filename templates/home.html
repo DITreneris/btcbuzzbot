@@ -36,9 +36,11 @@
                 </button>
             </div>
             <div class="card-body text-center">
-                {% if stats.latest_price %}
-                    <h2 class="display-4 mb-2" id="current-price">${{ "{:,.2f}".format(stats.latest_price.price) }}</h2>
-                    {% if stats.price_change %}
+                {# Check if stats.latest_price (the numerical value) exists #}
+                {% if stats.latest_price is not none %}
+                    {# Format stats.latest_price directly #}
+                    <h2 class="display-4 mb-2" id="current-price">${{ "{:,.2f}".format(stats.latest_price) }}</h2>
+                    {% if stats.price_change is not none %}
                         <div class="mb-3">
                             <span id="price-change" class="{% if stats.price_change > 0 %}price-up{% elif stats.price_change < 0 %}price-down{% else %}price-stable{% endif %}">
                                 <i class="fas {% if stats.price_change > 0 %}fa-arrow-up{% elif stats.price_change < 0 %}fa-arrow-down{% else %}fa-minus{% endif %} me-1"></i>
@@ -46,15 +48,22 @@
                             </span>
                             <small class="text-muted ms-2">(24h)</small>
                         </div>
+                    {% else %}
+                         <div class="mb-3">
+                             <span id="price-change" class="price-stable">--.--%</span>
+                            <small class="text-muted ms-2">(24h)</small>
+                        </div>
                     {% endif %}
                     <p class="text-muted">
                         <i class="far fa-clock me-1"></i> 
-                        Last updated: {{ stats.latest_price.timestamp }}
+                        {# Use stats.last_updated directly #}
+                        Last updated: {{ stats.last_updated or 'N/A' }}
                     </p>
                 {% else %}
+                    {# Fallback display if no price found #}
                     <h2 class="display-4 mb-2" id="current-price">$--,---.--</h2>
                     <div class="mb-3">
-                        <span id="price-change" class="price-stable">0.00%</span>
+                        <span id="price-change" class="price-stable">--.--%</span>
                         <small class="text-muted ms-2">(24h)</small>
                     </div>
                     <p class="text-muted">
