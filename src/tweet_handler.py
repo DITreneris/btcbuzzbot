@@ -78,10 +78,15 @@ class TweetHandler:
                  # We could potentially add the direct tweepy fallback init here if needed
 
             self.price_fetcher = PriceFetcher() # Assuming PriceFetcher handles its own config/env vars
-        self.initialized = True
-        logger.info("TweetHandler initialized")
+            
+            # Mark as initialized ONLY if the above succeeds
+            self.initialized = True
+            logger.info("TweetHandler initialized")
+            
         except Exception as e:
              logger.error(f"Error during TweetHandler initialization: {e}", exc_info=True)
+             # Ensure initialized is False if an error occurred
+             self.initialized = False 
         
     async def post_tweet(self, content: str, content_type: str, price: Optional[float] = None) -> Dict[str, Any]:
         """
