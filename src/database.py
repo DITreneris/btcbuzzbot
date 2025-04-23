@@ -294,9 +294,10 @@ class Database:
                 # For PostgreSQL
                 conn = self._get_postgres_connection()
                 cursor = conn.cursor()
+                # Use NOW() to let the database handle the timestamp correctly
                 cursor.execute(
-                    "INSERT INTO prices (price, timestamp, source) VALUES (%s, %s, %s) RETURNING id",
-                    (price, datetime.utcnow().isoformat(), "coingecko")
+                    "INSERT INTO prices (price, timestamp, source) VALUES (%s, NOW(), %s) RETURNING id",
+                    (price, "coingecko") # Pass only price and source
                 )
                 lastrowid = cursor.fetchone()[0]
                 conn.commit()
