@@ -21,13 +21,6 @@ document.addEventListener('DOMContentLoaded', function() {
         initializePriceChart();
     }
 
-    // Auto-refresh price every 5 minutes
-    setInterval(function() {
-        if (document.getElementById('current-price')) {
-            refreshBitcoinPrice(false); // Silent refresh
-        }
-    }, 300000); // 5 minutes
-
     // Toggle tweet scheduler
     const schedulerToggle = document.getElementById('scheduler-toggle');
     if (schedulerToggle) {

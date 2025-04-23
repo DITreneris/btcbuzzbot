@@ -229,9 +229,10 @@ async def run_analysis_cycle_wrapper():
 
 async def reschedule_tweet_jobs(scheduler):
     """Reads schedule from DB and updates APScheduler jobs.
-       Note: This task needs the scheduler instance passed to it.
+       Uses a remove-then-add strategy for reliability.
     """
-    from apscheduler.triggers.cron import CronTrigger # Import locally to avoid circular dep if engine imports this
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.jobstores.base import JobLookupError # Import for specific exception handling
     logger.info("Executing task: reschedule_tweet_jobs")
 
     schedule_config_str = None
@@ -240,8 +241,10 @@ async def reschedule_tweet_jobs(scheduler):
             schedule_config_str = await db_instance.get_scheduler_config()
         except Exception as e:
             logger.error(f"Reschedule task failed to get config from DB: {e}", exc_info=True)
+            return # Stop if we can't get config
     else:
         logger.error("Reschedule task cannot get schedule: Database instance not available.")
+        return # Stop if no DB
 
     schedule_times = []
     if schedule_config_str:
@@ -251,62 +254,56 @@ async def reschedule_tweet_jobs(scheduler):
          logger.warning("Reschedule task: No schedule loaded from DB.")
 
     try:
+        # --- Strategy: Remove all existing tweet jobs first --- 
         existing_job_ids = {job.id for job in scheduler.get_jobs() if job.id.startswith(TWEET_JOB_ID_PREFIX)}
-        desired_job_ids = set()
+        logger.info(f"Reschedule task: Found {len(existing_job_ids)} existing tweet jobs to remove.")
+        for job_id in existing_job_ids:
+            try:
+                scheduler.remove_job(job_id)
+                logger.debug(f"Reschedule task removed job: {job_id}")
+            except JobLookupError:
+                 logger.warning(f"Reschedule task: Job {job_id} already gone before removal attempt.")
+            except Exception as remove_e:
+                logger.error(f"Reschedule task: Error removing job {job_id}: {remove_e}")
+        # --- End Removal ---
 
+        # --- Strategy: Add jobs based on the current schedule --- 
+        added_count = 0
         if not schedule_times:
-            logger.warning("Reschedule task: No schedule times found/loaded. Removing all tweet jobs.")
+            logger.warning("Reschedule task: No schedule times found/loaded. No tweet jobs will be added.")
         else:
+            logger.info(f"Reschedule task: Adding jobs for schedule: {schedule_times}")
             for time_str in schedule_times:
                 try:
                     hour, minute = map(int, time_str.split(':'))
                     job_id = f"{TWEET_JOB_ID_PREFIX}{hour:02d}{minute:02d}"
-                    desired_job_ids.add(job_id)
-
                     trigger = CronTrigger(hour=hour, minute=minute, timezone=SCHEDULER_TIMEZONE)
 
-                    # --- Debugging: Log before replacement --- 
-                    existing_job = scheduler.get_job(job_id)
-                    if existing_job:
-                        logger.debug(f"Reschedule DBG: Job {job_id} exists. Next run: {existing_job.next_run_time}. Trigger: {existing_job.trigger}")
-                    else:
-                        logger.debug(f"Reschedule DBG: Job {job_id} does not exist, will be added.")
-                    # --- End Debugging ---
-
+                    # Add job - Do NOT use replace_existing=True here
                     scheduler.add_job(
                         post_tweet_and_log,
                         trigger=trigger,
                         id=job_id,
                         name=f"Post Tweet {time_str} UTC",
-                        replace_existing=True,
+                        # replace_existing=False, # Default is False, or omit
                         misfire_grace_time=60,
-                        executor='default' # Assumes a 'default' ThreadPoolExecutor exists
+                        executor='default'
                     )
-
-                    # --- Debugging: Log after replacement --- \n                    updated_job = scheduler.get_job(job_id)\n                    if updated_job:\n                        # logger.debug(f"Reschedule DBG: Job {job_id} added/updated. Next run: {updated_job.next_run_time}. Trigger: {updated_job.trigger}") # Causes AttributeError\n                        logger.debug(f"Reschedule DBG: Job {job_id} found after add_job call. Trigger: {updated_job.trigger}") # Log trigger only\n                    else:\n                        # This should ideally not happen if add_job succeeded\n                        logger.warning(f"Reschedule DBG: Job {job_id} not found immediately after add_job call!")\n                    # --- End Debugging ---\n
-
-                    logger.info(f"Reschedule task ensured job exists/updated: {job_id}")
+                    logger.info(f"Reschedule task ADDED job: {job_id} for {time_str} UTC")
+                    added_count += 1
 
                 except ValueError:
-                    logger.error(f"Reschedule task: Invalid time format '{time_str}' in schedule, skipping.")
+                    logger.error(f"Reschedule task: Invalid time format '{time_str}' in schedule, skipping add.")
                 except Exception as job_e:
-                     logger.error(f"Reschedule task: Error adding/updating job for {time_str}: {job_e}", exc_info=True)
+                     logger.error(f"Reschedule task: Error adding job for {time_str}: {job_e}", exc_info=True)
+        # --- End Adding ---
 
-        # Remove jobs that are no longer in the schedule
-        jobs_to_remove = existing_job_ids - desired_job_ids
-        for job_id in jobs_to_remove:
-            try:
-                scheduler.remove_job(job_id)
-                logger.info(f"Reschedule task removed job: {job_id}")
-            except Exception as remove_e:
-                logger.error(f"Reschedule task: Error removing job {job_id}: {remove_e}")
-
-        logger.info("Reschedule task finished.")
+        logger.info(f"Reschedule task finished. Added {added_count} tweet jobs.")
         active_tweet_jobs = [j for j in scheduler.get_jobs() if j.id.startswith(TWEET_JOB_ID_PREFIX)]
-        await log_status_to_db("Running", f"Tweet schedule refreshed by task. {len(active_tweet_jobs)} tweet jobs active.")
+        await log_status_to_db("Running", f"Tweet schedule refreshed. {len(active_tweet_jobs)} tweet jobs active.")
 
     except Exception as e:
-        logger.error(f"Reschedule task failed: {e}", exc_info=True)
+        logger.error(f"Reschedule task failed during remove/add process: {e}", exc_info=True)
         log_status_to_db("Error", f"Reschedule task failed to refresh tweet schedule: {e}")
 
 # --- Manual Trigger Functions (for CLI) ---
