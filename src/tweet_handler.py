@@ -78,20 +78,20 @@ class TweetHandler:
                  # We could potentially add the direct tweepy fallback init here if needed
 
             self.price_fetcher = PriceFetcher() # Assuming PriceFetcher handles its own config/env vars
-            self.initialized = True
-            logger.info("TweetHandler initialized")
+        self.initialized = True
+        logger.info("TweetHandler initialized")
         except Exception as e:
              logger.error(f"Error during TweetHandler initialization: {e}", exc_info=True)
-
+        
     async def post_tweet(self, content: str, content_type: str, price: Optional[float] = None) -> Dict[str, Any]:
         """
         Post a tweet with the given content and price.
-
+        
         Args:
             content: The content to post (quote/joke text)
             content_type: The type of content (quote, joke, price)
             price: Current BTC price (only used if content_type='price', optional)
-
+            
         Returns:
             Dictionary with result information
         """
@@ -144,7 +144,7 @@ class TweetHandler:
 
             # --- Duplicate Check ---
             logger.debug("Checking for recent duplicate posts...")
-            is_duplicate = await self.db.check_recent_post(minutes=5)
+            is_duplicate = await self.db.has_posted_recently(minutes=5)
             if is_duplicate:
                 logger.warning("Skipping tweet: A similar post was found within the last 5 minutes.")
                 return {'success': False, 'error': 'Skipped: Recent post detected'}
@@ -153,7 +153,7 @@ class TweetHandler:
             # Post the tweet via TwitterClient
             logger.debug("Calling TwitterClient.post_tweet...")
             tweet_id = await self.twitter_client.post_tweet(tweet_text)
-
+            
             if tweet_id:
                 # Log the tweet in the database
                 logger.debug(f"Tweet posted (ID: {tweet_id}). Logging to DB...")
@@ -164,9 +164,9 @@ class TweetHandler:
                     price_change=price_change_24h,
                     content_type=content_type
                 )
-
+                
                 logger.info(f"Successfully posted tweet with ID: {tweet_id}, logged as post ID: {post_id}")
-
+                
                 return {
                     'success': True,
                     'tweet_id': tweet_id,
@@ -179,14 +179,14 @@ class TweetHandler:
                     'success': False,
                     'error': 'Failed to post tweet - no tweet ID returned by TwitterClient'
                 }
-
+                
         except Exception as e:
             logger.error(f"Error in TweetHandler.post_tweet: {str(e)}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e)
             }
-
+            
     def _format_tweet(self, price: float, price_change: float, quote_or_joke_text: Optional[str], content_type: str) -> str:
         """Helper function to format the tweet text."""
         emoji = "📈" if price_change >= 0 else "📉"
