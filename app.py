@@ -418,7 +418,7 @@ def get_basic_stats():
             last_updated = None
             price_change = 0
 
-            query_latest = "SELECT price, timestamp FROM btc_price_data ORDER BY timestamp DESC LIMIT 1"
+            query_latest = "SELECT price, timestamp FROM prices ORDER BY timestamp DESC LIMIT 1"
             cursor.execute(query_latest)
             latest_price_row = cursor.fetchone()
 
@@ -426,7 +426,7 @@ def get_basic_stats():
                 latest_price = latest_price_row['price']
                 last_updated = latest_price_row['timestamp']
                 
-                query_prev = "SELECT price FROM btc_price_data ORDER BY timestamp DESC LIMIT 1 OFFSET 1"
+                query_prev = "SELECT price FROM prices ORDER BY timestamp DESC LIMIT 1 OFFSET 1"
                 cursor.execute(query_prev)
                 prev_price_row = cursor.fetchone()
 
