@@ -114,9 +114,8 @@ class TweetHandler:
         try:
             # Get the current price details
             logger.debug("TweetHandler: Fetching price data...")
-            # Assume PriceFetcher method returns dict {'usd': price, 'usd_24h_change': change}
-            # Use a reasonable retry limit
-            price_data = await self.price_fetcher.get_btc_price_with_retry(retry_limit=3)
+            # Use the correct argument name: max_retries
+            price_data = await self.price_fetcher.get_btc_price_with_retry(max_retries=3)
             if not price_data or "usd" not in price_data:
                  logger.error("Failed to fetch price data.")
                  return {'success': False, 'error': 'Failed to fetch price data'}
