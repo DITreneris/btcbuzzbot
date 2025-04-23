@@ -185,7 +185,6 @@ class Database:
             cursor.close()
             conn.close()
             print("PostgreSQL tables checked/created.")
-            pass
         except Exception as e:
             print(f"Error creating/checking PostgreSQL tables: {e}")
     
