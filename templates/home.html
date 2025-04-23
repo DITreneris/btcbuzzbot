@@ -54,7 +54,7 @@
                             <small class="text-muted ms-2">(24h)</small>
                         </div>
                     {% endif %}
-                    <p class="text-muted">
+                    <p class="text-muted" id="last-updated-timestamp">
                         <i class="far fa-clock me-1"></i>
                         {# Use stats.last_updated directly #}
                         Last updated: {{ stats.last_updated or 'N/A' }}

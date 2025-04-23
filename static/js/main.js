@@ -63,18 +63,15 @@ function refreshBitcoinPrice(showAnimation = true) {
     const priceElement = document.getElementById('current-price');
     const changeElement = document.getElementById('price-change');
     const refreshButton = document.getElementById('refresh-price');
-    const errorMsgElement = document.querySelector('.price-card .text-muted:last-child');
+    const timestampElement = document.getElementById('last-updated-timestamp');
     
-    if (!priceElement || !refreshButton) return;
+    if (!priceElement || !refreshButton || !timestampElement) return;
     
     if (showAnimation) {
         refreshButton.classList.add('refreshing');
         refreshButton.disabled = true;
         
-        // Add loading message
-        if (errorMsgElement) {
-            errorMsgElement.innerHTML = '<i class="fas fa-sync-alt fa-spin me-1"></i> Fetching latest price...';
-        }
+        timestampElement.innerHTML = '<i class="fas fa-sync-alt fa-spin me-1"></i> Fetching...';
     }
     
     fetch('/api/price/refresh')
@@ -86,7 +83,7 @@ function refreshBitcoinPrice(showAnimation = true) {
                 
                 // Determine and update price change display
                 if (changeElement) {
-                    const changeValue = parseFloat(data.change);
+                    const changeValue = parseFloat(data.change.replace('%',''));
                     let changeClass = 'price-stable';
                     let changeIcon = 'fa-minus';
                     
@@ -102,10 +99,9 @@ function refreshBitcoinPrice(showAnimation = true) {
                     changeElement.innerHTML = `<i class="fas ${changeIcon} me-1"></i>${data.change}`;
                 }
                 
-                // Update timestamp
-                if (errorMsgElement) {
-                    const now = new Date();
-                    errorMsgElement.innerHTML = `<i class="far fa-clock me-1"></i> Last updated: ${now.toISOString()}`;
+                // Update timestamp using the timestamp FROM THE API RESPONSE
+                if (timestampElement && data.timestamp) {
+                    timestampElement.innerHTML = `<i class="far fa-clock me-1"></i> Last updated: ${data.timestamp}`;
                 }
                 
                 // Apply fade-in animation
@@ -124,16 +120,16 @@ function refreshBitcoinPrice(showAnimation = true) {
                 }
             } else {
                 console.error('Error refreshing price:', data.error);
-                if (errorMsgElement) {
-                    errorMsgElement.innerHTML = `<i class="fas fa-exclamation-circle me-1"></i> Error: ${data.error || 'Failed to fetch price'}`;
+                if (timestampElement) {
+                    // Maybe restore original text or show error? For now, just log.
                 }
                 showAlert('Error refreshing price: ' + (data.error || 'Unknown error'), 'danger');
             }
         })
         .catch(error => {
             console.error('Error fetching price data:', error);
-            if (errorMsgElement) {
-                errorMsgElement.innerHTML = '<i class="fas fa-exclamation-circle me-1"></i> Network error, please try again';
+            if (timestampElement) {
+                // Maybe restore original text or show error? For now, just log.
             }
             showAlert('Network error fetching price data', 'danger');
         })
@@ -141,6 +137,7 @@ function refreshBitcoinPrice(showAnimation = true) {
             if (showAnimation) {
                 refreshButton.classList.remove('refreshing');
                 refreshButton.disabled = false;
+                // Optionally restore timestamp if fetch failed and we didn't update it
             }
         });
 }
