@@ -95,6 +95,8 @@ class TweetHandler:
         Returns:
             Dictionary with result information
         """
+        logger.info(f"--- Method TweetHandler.post_tweet ENTERED (content_type: {content_type}) ---")
+
         if not self.initialized:
             logger.error("TweetHandler not initialized")
             return {

@@ -134,10 +134,13 @@ async def log_status_to_db(status: str, message: str):
 # --- Task Functions --- 
 async def post_tweet_and_log():
     """Posts a tweet using the shared tweet_handler instance and logs the result."""
+    # Add logging at the very start
+    logger.info("--- Task post_tweet_and_log ENTERED ---")
+
     # Use the shared instance
     if not tweet_handler_instance:
-        await log_status_to_db("Error", "Tweet handler or DB not available for posting.")
         logger.error("Cannot post tweet: Tweet handler instance not available.")
+        await log_status_to_db("Error", "Tweet handler or DB not available for posting.")
         return False
 
     try:
