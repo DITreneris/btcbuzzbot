@@ -94,7 +94,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS prices (
                 id SERIAL PRIMARY KEY,
                 price REAL NOT NULL,
-                timestamp TEXT NOT NULL,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
                 source TEXT NOT NULL
             )
             ''')
@@ -105,9 +105,9 @@ class Database:
                 id SERIAL PRIMARY KEY,
                 text TEXT NOT NULL,
                 category TEXT NOT NULL,
-                created_at TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 used_count INTEGER DEFAULT 0,
-                last_used TEXT
+                last_used TIMESTAMP WITH TIME ZONE
             )
             ''')
             
@@ -117,9 +117,9 @@ class Database:
                 id SERIAL PRIMARY KEY,
                 text TEXT NOT NULL,
                 category TEXT NOT NULL,
-                created_at TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 used_count INTEGER DEFAULT 0,
-                last_used TEXT
+                last_used TIMESTAMP WITH TIME ZONE
             )
             ''')
             
@@ -129,7 +129,7 @@ class Database:
                 id SERIAL PRIMARY KEY,
                 tweet_id TEXT NOT NULL,
                 tweet TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
                 price REAL NOT NULL,
                 price_change REAL NOT NULL,
                 content_type TEXT NOT NULL,
@@ -143,25 +143,28 @@ class Database:
             CREATE TABLE IF NOT EXISTS news_tweets (
                 id SERIAL PRIMARY KEY,
                 original_tweet_id TEXT UNIQUE NOT NULL,
-                author TEXT,
-                tweet_text TEXT NOT NULL,
-                tweet_url TEXT,
-                published_at TEXT NOT NULL,
-                fetched_at TEXT NOT NULL,
-                is_news BOOLEAN DEFAULT FALSE,
-                news_score REAL DEFAULT 0.0,
-                sentiment TEXT,
-                summary TEXT
-            );
+                author_id TEXT,
+                text TEXT NOT NULL,
+                published_at TIMESTAMP WITH TIME ZONE,
+                fetched_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                metrics JSONB, -- Storing public_metrics or organic_metrics
+                source TEXT, -- e.g., 'twitter_search', 'influencer_feed'
+                processed BOOLEAN DEFAULT FALSE, -- Flag for analysis processing
+                sentiment_score REAL,
+                sentiment_label TEXT,
+                keywords TEXT, -- Comma-separated keywords
+                summary TEXT,
+                llm_analysis JSONB -- Store structured analysis from LLM
+            )
             ''')
             
             # --- Add Scheduler/Web Interface Tables (PostgreSQL) ---
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS bot_status (
                 id SERIAL PRIMARY KEY,
-                timestamp TEXT NOT NULL,
+                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
                 status TEXT NOT NULL,
-                next_scheduled_run TEXT, 
+                next_scheduled_run TIMESTAMP WITH TIME ZONE,
                 message TEXT NOT NULL
             )
             ''')
@@ -179,6 +182,11 @@ class Database:
             # --- End Scheduler Tables ---
             
             conn.commit()
+            cursor.close()
+            conn.close()
+            print("PostgreSQL tables checked/created.")
+        except Exception as e:
+            print(f"Error creating/checking PostgreSQL tables: {e}")
     
     def _create_tables_sqlite(self):
         """Create database tables in SQLite if they don't exist"""
@@ -487,17 +495,36 @@ class Database:
     async def log_post(self, tweet_id: str, tweet: str, price: float, price_change: float, content_type: str) -> int:
         """Log a successful post"""
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                cursor = await db.execute(
+            if self.is_postgres:
+                # PostgreSQL implementation
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute(
                     """
                     INSERT INTO posts 
                     (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s) RETURNING id
                     """,
-                    (tweet_id, tweet, datetime.utcnow().isoformat(), price, price_change, content_type, 0, 0)
+                    (tweet_id, tweet, price, price_change, content_type, 0, 0)
                 )
-                await db.commit()
-                return cursor.lastrowid
+                lastrowid = cursor.fetchone()[0]
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return lastrowid
+            else:
+                # SQLite implementation
+                async with aiosqlite.connect(self.db_path) as db:
+                    cursor = await db.execute(
+                        """
+                        INSERT INTO posts 
+                        (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (tweet_id, tweet, datetime.utcnow().isoformat(), price, price_change, content_type, 0, 0)
+                    )
+                    await db.commit()
+                    return cursor.lastrowid
         except Exception as e:
             print(f"Error logging post: {e}")
             return -1
@@ -525,57 +552,80 @@ class Database:
             return 0
             
     async def has_posted_recently(self, minutes: int = 5) -> bool:
-        """Check if a tweet has been posted successfully within the last N minutes."""
+        """Check if a post was made within the last X minutes"""
         try:
-            now = datetime.utcnow()
-            cutoff_time = (now - datetime.timedelta(minutes=minutes)).isoformat()
-            
             if self.is_postgres:
-                # For PostgreSQL
+                # PostgreSQL implementation
                 conn = self._get_postgres_connection()
                 cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM posts WHERE timestamp > %s", (cutoff_time,))
-                count = cursor.fetchone()[0]
+                cursor.execute(
+                    "SELECT 1 FROM posts WHERE timestamp > NOW() - INTERVAL '%s minutes' LIMIT 1",
+                    (minutes,)
+                )
+                result = cursor.fetchone()
                 cursor.close()
                 conn.close()
-                return count > 0
+                return result is not None
             else:
-                # For SQLite
+                # SQLite implementation
                 async with aiosqlite.connect(self.db_path) as db:
-                    async with db.execute("SELECT COUNT(*) FROM posts WHERE timestamp > ?", (cutoff_time,)) as cursor:
-                        result = await cursor.fetchone()
-                        return result[0] > 0 if result else False
+                    async with db.execute(
+                        "SELECT 1 FROM posts WHERE datetime(timestamp) > datetime('now', ? || ' minutes') LIMIT 1",
+                        (f"-{minutes}",)
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                        return row is not None
         except Exception as e:
-            print(f"Error checking for recent posts: {e}")
-            # Default to False to avoid blocking posts if check fails
+            print(f"Error checking recent posts: {e}")
+            # Default to false to avoid blocking posts unnecessarily in case of error
             return False
 
     # --- Scheduler/Status Specific Methods --- 
 
     async def log_bot_status(self, status: str, message: str):
-        """Log bot status (e.g., Running, Error, Stopped) to the bot_status table."""
-        timestamp = datetime.utcnow().isoformat() # Consider timezone consistency
+        """Log bot status updates, including scheduler heartbeats"""
         try:
+            now_ts = datetime.utcnow()
             if self.is_postgres:
                 conn = self._get_postgres_connection()
                 cursor = conn.cursor()
-                # Assuming next_scheduled_run is managed elsewhere or not logged here
+                # Get next scheduled run time if status is 'scheduled'
+                next_run = None
+                if status.lower() == 'scheduled':
+                    # Placeholder: This might need adjustment based on how scheduler passes next run time
+                    # For now, let's assume message might contain it or we fetch it
+                    # If message contains ISO time string:
+                    try:
+                        # Attempt to parse from message if it's an ISO string
+                        next_run = datetime.fromisoformat(message.split("Next run: ")[-1].replace('Z', '+00:00')) 
+                    except (ValueError, IndexError):
+                        next_run = None # Could not parse
+                
                 cursor.execute(
-                    "INSERT INTO bot_status (timestamp, status, message) VALUES (%s, %s, %s)",
-                    (timestamp, status, message)
+                    "INSERT INTO bot_status (timestamp, status, next_scheduled_run, message) VALUES (%s, %s, %s, %s)",
+                    (now_ts, status, next_run, message)
                 )
                 conn.commit()
                 cursor.close()
                 conn.close()
             else:
+                # SQLite implementation
                 async with aiosqlite.connect(self.db_path) as db:
+                    # Get next scheduled run time if status is 'scheduled'
+                    next_run_str = None
+                    if status.lower() == 'scheduled':
+                        # Placeholder logic similar to above
+                        try:
+                            next_run_str = message.split("Next run: ")[-1]
+                        except IndexError:
+                            next_run_str = None
                     await db.execute(
-                        "INSERT INTO bot_status (timestamp, status, message) VALUES (?, ?, ?)",
-                        (timestamp, status, message)
+                        "INSERT INTO bot_status (timestamp, status, next_scheduled_run, message) VALUES (?, ?, ?, ?)",
+                        (now_ts.isoformat(), status, next_run_str, message)
                     )
                     await db.commit()
         except Exception as e:
-            print(f"Error logging bot status: {e}", file=sys.stderr)
+            print(f"Error logging bot status: {e}")
 
     async def get_scheduler_config(self) -> Optional[str]:
         """Get the schedule string from scheduler_config table."""
