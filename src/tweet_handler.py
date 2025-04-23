@@ -86,12 +86,12 @@ class TweetHandler:
     async def post_tweet(self, content: str, content_type: str, price: Optional[float] = None) -> Dict[str, Any]:
         """
         Post a tweet with the given content and price.
-        
+
         Args:
             content: The content to post (quote/joke text)
             content_type: The type of content (quote, joke, price)
             price: Current BTC price (only used if content_type='price', optional)
-            
+
         Returns:
             Dictionary with result information
         """
@@ -112,20 +112,26 @@ class TweetHandler:
              return {'success': False, 'error': 'Database not available'}
 
         try:
-            # Get the current price details
-            logger.debug("TweetHandler: Fetching price data...")
-            # Use the correct argument name: max_retries
-            price_data = await self.price_fetcher.get_btc_price_with_retry(max_retries=3)
-            if not price_data or "usd" not in price_data:
-                 logger.error("Failed to fetch price data.")
-                 return {'success': False, 'error': 'Failed to fetch price data'}
+            # 1. Fetch Bitcoin Price using PriceFetcher
+            if not self.price_fetcher:
+                return {"success": False, "error": "PriceFetcher not initialized"}
 
-            current_price = price_data["usd"]
-            price_change_24h = price_data.get("usd_24h_change", 0.0) # Use 24h change if available
+            try:
+                # Use the correct argument name: max_retries
+                price_data = await self.price_fetcher.get_btc_price_with_retry(max_retries=3) # Correct argument name
+            except Exception as price_err:
+                error_msg = f"Could not fetch BTC price: {str(price_err)}"
+                logger.error(f"TweetHandler: {error_msg}", exc_info=True)
+                return {"success": False, "error": error_msg}
+
+            current_price = price_data.get('usd', 0.0)
+            # Attempt to get 24h change from PriceFetcher result if available
+            # Assuming get_btc_price_with_retry might return more than just {'usd': price}
+            price_change_24h = price_data.get("usd_24h_change", 0.0)
             logger.debug(f"TweetHandler: Price data fetched: ${current_price:,.2f}, Change: {price_change_24h:.2f}%")
 
+
             # Store the new price in the database
-            # Pass both price and change if db schema supports it
             await self.db.store_price(current_price, price_change=price_change_24h)
             logger.debug("TweetHandler: Price stored in DB.")
 
@@ -134,9 +140,8 @@ class TweetHandler:
 
             logger.info(f"Formatted Tweet: {tweet_text}")
 
-            # --- Duplicate Check --- (Add this back in)
+            # --- Duplicate Check ---
             logger.debug("Checking for recent duplicate posts...")
-            # Check within the last 5 minutes
             is_duplicate = await self.db.check_recent_post(minutes=5)
             if is_duplicate:
                 logger.warning("Skipping tweet: A similar post was found within the last 5 minutes.")
@@ -174,7 +179,6 @@ class TweetHandler:
                 }
 
         except Exception as e:
-            # Log the full exception details for debugging
             logger.error(f"Error in TweetHandler.post_tweet: {str(e)}", exc_info=True)
             return {
                 'success': False,
