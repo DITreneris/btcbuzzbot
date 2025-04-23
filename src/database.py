@@ -86,107 +86,110 @@ class Database:
     
     def _create_tables_postgres(self):
         """Create database tables in PostgreSQL if they don't exist"""
-        with self._get_postgres_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Create prices table
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS prices (
-                id SERIAL PRIMARY KEY,
-                price REAL NOT NULL,
-                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-                source TEXT NOT NULL
-            )
-            ''')
-            
-            # Create quotes table
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS quotes (
-                id SERIAL PRIMARY KEY,
-                text TEXT NOT NULL,
-                category TEXT NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                used_count INTEGER DEFAULT 0,
-                last_used TIMESTAMP WITH TIME ZONE
-            )
-            ''')
-            
-            # Create jokes table
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS jokes (
-                id SERIAL PRIMARY KEY,
-                text TEXT NOT NULL,
-                category TEXT NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                used_count INTEGER DEFAULT 0,
-                last_used TIMESTAMP WITH TIME ZONE
-            )
-            ''')
-            
-            # Create posts table
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS posts (
-                id SERIAL PRIMARY KEY,
-                tweet_id TEXT NOT NULL,
-                tweet TEXT NOT NULL,
-                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-                price REAL NOT NULL,
-                price_change REAL NOT NULL,
-                content_type TEXT NOT NULL,
-                likes INTEGER DEFAULT 0,
-                retweets INTEGER DEFAULT 0
-            )
-            ''')
-            
-            # Create news_tweets table
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS news_tweets (
-                id SERIAL PRIMARY KEY,
-                original_tweet_id TEXT UNIQUE NOT NULL,
-                author_id TEXT,
-                text TEXT NOT NULL,
-                published_at TIMESTAMP WITH TIME ZONE,
-                fetched_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                metrics JSONB, -- Storing public_metrics or organic_metrics
-                source TEXT, -- e.g., 'twitter_search', 'influencer_feed'
-                processed BOOLEAN DEFAULT FALSE, -- Flag for analysis processing
-                sentiment_score REAL,
-                sentiment_label TEXT,
-                keywords TEXT, -- Comma-separated keywords
-                summary TEXT,
-                llm_analysis JSONB -- Store structured analysis from LLM
-            )
-            ''')
-            
-            # --- Add Scheduler/Web Interface Tables (PostgreSQL) ---
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS bot_status (
-                id SERIAL PRIMARY KEY,
-                timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-                status TEXT NOT NULL,
-                next_scheduled_run TIMESTAMP WITH TIME ZONE,
-                message TEXT NOT NULL
-            )
-            ''')
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS scheduler_config (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-            ''')
-            # Insert default schedule if not present
-            cursor.execute("SELECT value FROM scheduler_config WHERE key = %s", ('schedule',))
-            if not cursor.fetchone():
-                default_schedule = "08:00,12:00,16:00,20:00"
-                cursor.execute("INSERT INTO scheduler_config (key, value) VALUES (%s, %s)", ('schedule', default_schedule))
-            # --- End Scheduler Tables ---
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            print("PostgreSQL tables checked/created.")
+        conn = None  # Initialize conn
+        try:
+            conn = self._get_postgres_connection()
+            with conn.cursor() as cursor:
+                # Create prices table
+                cursor.execute(
+                    "CREATE TABLE IF NOT EXISTS prices (\n"
+                    "    id SERIAL PRIMARY KEY,\n"
+                    "    price REAL NOT NULL,\n"
+                    "    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,\n"
+                    "    source TEXT NOT NULL\n"
+                    ");"
+                )
+                
+                # Create quotes table
+                cursor.execute(
+                    "CREATE TABLE IF NOT EXISTS quotes (\n"
+                    "    id SERIAL PRIMARY KEY,\n"
+                    "    text TEXT NOT NULL,\n"
+                    "    category TEXT NOT NULL,\n"
+                    "    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n"
+                    "    used_count INTEGER DEFAULT 0,\n"
+                    "    last_used TIMESTAMP WITH TIME ZONE\n"
+                    ");"
+                )
+                
+                # Create jokes table
+                cursor.execute(
+                    "CREATE TABLE IF NOT EXISTS jokes (\n"
+                    "    id SERIAL PRIMARY KEY,\n"
+                    "    text TEXT NOT NULL,\n"
+                    "    category TEXT NOT NULL,\n"
+                    "    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n"
+                    "    used_count INTEGER DEFAULT 0,\n"
+                    "    last_used TIMESTAMP WITH TIME ZONE\n"
+                    ");"
+                )
+                
+                # Create posts table
+                cursor.execute(
+                    "CREATE TABLE IF NOT EXISTS posts (\n"
+                    "    id SERIAL PRIMARY KEY,\n"
+                    "    tweet_id TEXT NOT NULL,\n"
+                    "    tweet TEXT NOT NULL,\n"
+                    "    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,\n"
+                    "    price REAL NOT NULL,\n"
+                    "    price_change REAL NOT NULL,\n"
+                    "    content_type TEXT NOT NULL,\n"
+                    "    likes INTEGER DEFAULT 0,\n"
+                    "    retweets INTEGER DEFAULT 0\n"
+                    ");"
+                )
+                
+                # Create news_tweets table
+                cursor.execute(
+                    "CREATE TABLE IF NOT EXISTS news_tweets (\n"
+                    "    id SERIAL PRIMARY KEY,\n"
+                    "    original_tweet_id TEXT UNIQUE NOT NULL,\n"
+                    "    author_id TEXT,\n"
+                    "    text TEXT NOT NULL,\n"
+                    "    published_at TIMESTAMP WITH TIME ZONE,\n"
+                    "    fetched_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n"
+                    "    metrics JSONB, -- Storing public_metrics or organic_metrics\n"
+                    "    source TEXT, -- e.g., 'twitter_search', 'influencer_feed'\n"
+                    "    processed BOOLEAN DEFAULT FALSE, -- Flag for analysis processing\n"
+                    "    sentiment_score REAL,\n"
+                    "    sentiment_label TEXT,\n"
+                    "    keywords TEXT, -- Comma-separated keywords\n"
+                    "    summary TEXT,\n"
+                    "    llm_analysis JSONB -- Store structured analysis from LLM\n"
+                    ");"
+                )
+                
+                # --- Add Scheduler/Web Interface Tables (PostgreSQL) ---
+                cursor.execute(
+                    "CREATE TABLE IF NOT EXISTS bot_status (\n"
+                    "    id SERIAL PRIMARY KEY,\n"
+                    "    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,\n"
+                    "    status TEXT NOT NULL,\n"
+                    "    next_scheduled_run TIMESTAMP WITH TIME ZONE,\n"
+                    "    message TEXT NOT NULL\n"
+                    ");"
+                )
+                cursor.execute(
+                    "CREATE TABLE IF NOT EXISTS scheduler_config (\n"
+                    "    key TEXT PRIMARY KEY,\n"
+                    "    value TEXT NOT NULL\n"
+                    ");"
+                )
+                # Insert default schedule if not present
+                cursor.execute("SELECT value FROM scheduler_config WHERE key = %s", ('schedule',))
+                if not cursor.fetchone():
+                    default_schedule = "08:00,12:00,16:00,20:00"
+                    cursor.execute("INSERT INTO scheduler_config (key, value) VALUES (%s, %s)", ('schedule', default_schedule))
+                # --- End Scheduler Tables ---
+                
+                conn.commit()
+                print("PostgreSQL tables checked/created.")
+                
         except Exception as e:
             print(f"Error creating/checking PostgreSQL tables: {e}")
+        finally:
+            if conn:
+                conn.close() # Ensure connection is closed even if cursor context manager fails
     
     def _create_tables_sqlite(self):
         """Create database tables in SQLite if they don't exist"""
