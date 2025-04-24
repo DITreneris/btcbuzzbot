@@ -356,6 +356,44 @@ class Database:
         except Exception as e:
             print(f"Error getting latest price: {e}")
             return None
+
+    async def get_price_from_approx_24h_ago(self) -> Optional[float]:
+        """Fetches the price recorded closest to 24 hours prior to the current time."""
+        try:
+            if self.is_postgres:
+                # PostgreSQL: Find the latest price recorded *before* or *at* 24 hours ago.
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                # Select the price from the most recent record older than 24 hours.
+                sql_query = """
+                    SELECT price 
+                    FROM prices 
+                    WHERE timestamp <= NOW() - INTERVAL '24 hours' 
+                    ORDER BY timestamp DESC 
+                    LIMIT 1;
+                    """
+                cursor.execute(sql_query)
+                row = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                return row[0] if row else None
+            else:
+                # SQLite: Similar logic using datetime function.
+                async with aiosqlite.connect(self.db_path) as db:
+                    # Select the price from the most recent record older than 24 hours.
+                    sql_query = """
+                        SELECT price 
+                        FROM prices 
+                        WHERE datetime(timestamp) <= datetime('now', '-24 hours') 
+                        ORDER BY timestamp DESC 
+                        LIMIT 1;
+                        """
+                    async with db.execute(sql_query) as cursor:
+                        row = await cursor.fetchone()
+                        return row[0] if row else None
+        except Exception as e:
+            logger.error(f"Error getting price from ~24h ago: {e}", exc_info=True) # Use logger
+            return None
     
     async def get_random_content(self, collection_name: str) -> Optional[Dict[str, Any]]:
         """Get random content from either quotes or jokes table"""
@@ -784,58 +822,86 @@ class Database:
         
         return tweets
 
-    async def update_news_tweet_analysis(self, original_tweet_id: str, analysis_results: Dict[str, Any]):
-        """Updates a news tweet record with analysis results."""
-        # Fields to potentially update from analysis_results dictionary
-        fields_to_update = {
-            'is_news': analysis_results.get('is_news'),
-            'news_score': analysis_results.get('news_score'),
-            # Store the generated label in the 'sentiment' column
-            'sentiment': analysis_results.get('sentiment_label'), 
-            'summary': analysis_results.get('summary')
-        }
-        
-        # Filter out None values to avoid overwriting existing data unintentionally
-        update_data = {k: v for k, v in fields_to_update.items() if v is not None}
-        
-        if not update_data:
-            print(f"No analysis results provided to update for tweet ID {original_tweet_id}")
-            return False # Nothing to update
+    async def update_tweet_analysis(
+        self,
+        original_tweet_id: str,
+        sentiment: Optional[float],
+        news_score: Optional[float],
+        summary: Optional[str],
+        llm_raw_analysis: Optional[str] = None # Add new optional parameter
+    ):
+        """Update the analysis fields for a specific tweet in news_tweets."""
+        if not original_tweet_id:
+            return False
 
-        # Handle SQLite boolean conversion if is_news is present
-        if 'is_news' in update_data and not self.is_postgres:
-            update_data['is_news'] = 1 if update_data['is_news'] else 0
-            
-        set_clause = ", ".join([f"{key} = %s" if self.is_postgres else f"{key} = ?" for key in update_data.keys()])
-        params = list(update_data.values())
-        params.append(original_tweet_id) # For the WHERE clause
-        
-        sql = f"UPDATE news_tweets SET {set_clause} WHERE original_tweet_id = {'%s' if self.is_postgres else '?'};"
-        
+        update_fields = []
+        params = []
+
+        if sentiment is not None:
+            update_fields.append("sentiment = %s")
+            params.append(sentiment)
+        if news_score is not None:
+            update_fields.append("news_score = %s")
+            params.append(news_score)
+        if summary is not None:
+            update_fields.append("summary = %s")
+            params.append(summary)
+        # Add llm_raw_analysis to update if provided
+        if llm_raw_analysis is not None:
+            update_fields.append("llm_raw_analysis = %s") 
+            params.append(llm_raw_analysis)
+
+        update_fields.append("analysis_timestamp = NOW()") # Always update timestamp
+        update_fields.append("needs_analysis = FALSE")    # Mark as analyzed
+
+        if not params: # Only need timestamp/needs_analysis update if nothing else provided
+            # This check might not be strictly necessary if we always expect some analysis
+            # but it's safer. If llm_raw_analysis is the only thing, this handles it.
+            pass
+
+        params.append(original_tweet_id) # Add the ID for the WHERE clause
+
+        sql_query = f"""
+            UPDATE news_tweets 
+            SET {', '.join(update_fields)}
+            WHERE original_tweet_id = %s
+            """
+
         try:
             if self.is_postgres:
                 conn = self._get_postgres_connection()
                 cursor = conn.cursor()
-                cursor.execute(sql, tuple(params))
-                updated_rows = cursor.rowcount
+                cursor.execute(sql_query, tuple(params))
+                rows_affected = cursor.rowcount
                 conn.commit()
                 cursor.close()
                 conn.close()
+                if rows_affected > 0:
+                    logger.debug(f"Successfully updated analysis for tweet ID {original_tweet_id}")
+                    return True
+                else:
+                    logger.warning(f"No tweet found with original_tweet_id {original_tweet_id} to update analysis.")
+                    return False
             else:
+                # SQLite implementation (adjust placeholders)
+                sql_query_sqlite = sql_query.replace("%s", "?").replace("NOW()", "datetime('now')")
                 async with aiosqlite.connect(self.db_path) as db:
-                    cursor = await db.execute(sql, tuple(params))
+                    cursor = await db.execute(sql_query_sqlite, tuple(params))
                     await db.commit()
-                    updated_rows = cursor.rowcount
-                    
-            if updated_rows > 0:
-                print(f"Successfully updated analysis for tweet ID {original_tweet_id}")
-                return True
-            else:
-                print(f"No tweet found with ID {original_tweet_id} to update analysis.")
-                return False
+                    if cursor.rowcount > 0:
+                         logger.debug(f"Successfully updated analysis for tweet ID {original_tweet_id}")
+                         return True
+                    else:
+                        logger.warning(f"No tweet found with original_tweet_id {original_tweet_id} to update analysis.")
+                        return False
         except Exception as e:
-            print(f"Error updating analysis for tweet ID {original_tweet_id}: {e}", file=sys.stderr)
+            logger.error(f"Error updating tweet analysis for {original_tweet_id}: {e}", exc_info=True)
             return False
+
+    async def get_tweets_for_analysis(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get tweets marked as needing analysis."""
+        # Renamed from get_unprocessed_news_tweets for clarity
+        # ... (rest of method - no change needed here) ...
 
     async def close(self):
         """Close the database connection if it's open"""

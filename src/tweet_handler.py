@@ -149,6 +149,19 @@ class TweetHandler:
             await self.db.store_price(current_price) # REMOVED price_change argument
             logger.debug("TweetHandler: Price stored in DB.")
 
+            # --- Calculate 24h Price Change ---
+            price_change_24h = 0.0 # Default to 0.0
+            try:
+                previous_price = await self.db.get_price_from_approx_24h_ago()
+                if previous_price is not None and previous_price > 0:
+                    price_change_24h = ((current_price - previous_price) / previous_price) * 100
+                    logger.info(f"Calculated 24h price change: {price_change_24h:.2f}% (Current: ${current_price:,.2f}, Previous: ${previous_price:,.2f})")
+                else:
+                    logger.warning("Could not retrieve price from ~24h ago to calculate change. Defaulting to 0.00%.")
+            except Exception as calc_err:
+                logger.error(f"Error calculating 24h price change: {calc_err}", exc_info=True)
+            # --- End Price Change Calculation ---
+
             # Format the tweet using helper method
             tweet_text = self._format_tweet(current_price, price_change_24h, content, content_type)
 
