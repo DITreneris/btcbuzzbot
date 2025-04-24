@@ -248,7 +248,7 @@ class NewsAnalyzer:
             summary_to_store = results['summary']
 
             try:
-                await self.db.update_tweet_analysis(
+                await self.db.update_tweet_analysis( # <--- Should be update_tweet_analysis
                     original_tweet_id=original_id,
                     sentiment=sentiment_to_store,
                     news_score=news_score_to_store,
@@ -256,7 +256,7 @@ class NewsAnalyzer:
                     llm_raw_analysis=json.dumps({ # Store raw LLM output too for debugging/future use
                         'significance': results.get('llm_significance'),
                         'sentiment': results.get('llm_sentiment')
-                    }) if results.get('llm_significance') else None 
+                    }) if results.get('llm_significance') else None
                 )
                 updated_count += 1
                 # logger.debug(f"Successfully updated analysis for tweet ID {original_id}") # DEBUG level
