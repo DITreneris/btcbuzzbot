@@ -2,11 +2,14 @@ import sqlite3
 import aiosqlite
 import os
 import json
+import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 import sys
 import asyncio
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 # For PostgreSQL support on Heroku
 try:
