@@ -183,7 +183,7 @@ class Database:
                 # --- End Scheduler Tables ---
             
             conn.commit()
-                print("PostgreSQL tables checked/created.")
+            print("PostgreSQL tables checked/created.")
                 
         except Exception as e:
             print(f"Error creating/checking PostgreSQL tables: {e}")
