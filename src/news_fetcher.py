@@ -81,8 +81,8 @@ class NewsFetcher:
         default_query = "#Bitcoin -is:retweet"
         # Get search query directly from env var or use default
         search_query = os.environ.get('TWITTER_SEARCH_QUERY', default_query)
-        # Ensure max_results is within Twitter API limits (10-100 for recent search)
-        safe_max_results = max(10, min(max_results, 100))
+        # Ensure max_results is within Twitter API limits (5-100 for recent search, set to 5)
+        safe_max_results = max(5, min(max_results, 5))
 
         logger.info(f"Fetching up to {safe_max_results} tweets for query: '{search_query}'")
 

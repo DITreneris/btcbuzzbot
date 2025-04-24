@@ -174,59 +174,74 @@ Based on the initial plan, the following steps have been implemented:
     *   [x] Modified `post_tweet_and_log` in `src/scheduler_tasks.py` to randomly select content type (price/quote/joke) and fetch content from DB.
 *   [x] **Dependencies & Environment:**
     *   [x] Added `pytz`, `vaderSentiment`, `groq` to `requirements.txt`.
-*   [x] **Debugging:**
+*   [x] **Deployment & Debugging:**
     *   [x] Resolved various environment setup issues (pip, venv).
     *   [x] Fixed Python import errors.
     *   [x] Corrected multiple `IndentationError`s.
     *   [x] Fixed Twitter API query issues (`$BTC` operator) by correcting default in `src/config.py`.
     *   [x] Fixed Twitter authentication issues (Bearer Token requirement, `get_me()` removal).
     *   [x] Improved logging accuracy (fetcher task wrapper, shutdown).
-    *   [x] **Verified Fetch/Store/Analyze pipeline is functional.**
+    *   [x] Verified Fetch/Store/Analyze pipeline is functional locally.
+    *   [x] Fixed `Procfile` worker command to use `scheduler.py start`.
+    *   [x] Fixed `NameError: name 'logger' is not defined` in `app.py`.
+    *   [x] Fixed `jinja2.exceptions.UndefinedError: 'bot_status' is undefined` in `app.py`.
+    *   [x] Fixed `jinja2.exceptions.UndefinedError: 'schedule' is undefined` in `app.py`.
+    *   [x] **Successfully deployed to Heroku.**
+    *   [x] **Confirmed `/admin` page loads correctly on Heroku.**
 
 ## 5. Current Status, Issues, and Next Steps
 
 **Current Status:**
 
-*   The core pipeline for fetching external tweets (`#Bitcoin -is:retweet`), storing them, running analysis placeholders (sentiment/LLM disabled by default), and marking them as processed in the database **is functional**. 
-*   The scheduler (`AsyncIOScheduler`) starts correctly, adds fetch/analyze/reschedule jobs, and runs without `asyncio`-related errors.
-*   The shutdown process is clean.
-*   The tweet posting logic has been updated to randomize content (price/quote/joke).
-*   The basic frontend table for potential news exists.
+*   The application is **successfully deployed to Heroku**. 
+*   The **`/admin` web interface is loading correctly**. 
+*   The core pipeline for fetching external tweets, storing them, and running analysis placeholders **is functional on Heroku** (verified via local testing previously).
+*   The **worker dyno is running the correct `APScheduler`-based scheduler code** due to the `Procfile` fix.
+*   The tweet posting logic uses randomized content types (price/quote/joke).
 
 **Current Issues/Areas for Improvement:**
 
-1.  **Scheduled Tweet Verification:** The primary user issue (repetitive tweets) has been addressed in code, but **not yet verified** by observing a scheduled tweet post with the new logic.
-2.  **Analysis Activation:** Sentiment (VADER) and LLM (Groq) analysis are currently skipped due to missing packages/API keys by default.
-3.  **Frontend Display Needs Update:** The "Potential News Tweets" table does not yet display `sentiment` or `summary` data.
-4.  **Twitter API Rate Limiting (Monitoring):** The fetch frequency (15 min) might still be too high for the free API tier long-term. Needs monitoring.
-5.  **LLM Analysis Quality/Cost:** If enabled, LLM prompts and scoring need evaluation and refinement.
-6.  **Configuration Hardcoding:** Some parameters (scheduler intervals, analysis keywords, fetcher `max_results`) remain hardcoded.
+1.  **Scheduled Tweet Verification (Heroku):** The primary user issue (repetitive tweets) has been addressed in code, but **not yet verified** by observing a scheduled tweet post running **on Heroku** with the new scheduler and logic.
+2.  **Database Schema (PostgreSQL):** Logs from previous worker runs (using old code) indicated the `last_used` column in `quotes`/`jokes` might be `TEXT` instead of `TIMESTAMP WITH TIME ZONE` in the Heroku PostgreSQL DB. This *could* cause errors in the *new* `get_random_content` function if not fixed manually.
+3.  **Analysis Activation:** Sentiment (VADER) and LLM (Groq) analysis are currently skipped due to missing packages/API keys by default.
+4.  **Frontend Display Needs Update:** The "Potential News Tweets" table does not yet display `sentiment` or `summary` data.
+5.  **LLM API Registration:** The `Failed to register Ollama LLM API: 'Flask' object has no attribute 'before_first_request'` error appears during startup (due to Flask deprecation). Needs fixing if LLM features are used.
+6.  **Twitter API Rate Limiting (Monitoring):** The fetch frequency (15 min) might still be too high for the free API tier long-term. Needs monitoring on Heroku.
+7.  **LLM Analysis Quality/Cost:** If enabled, LLM prompts and scoring need evaluation and refinement.
+8.  **Configuration Hardcoding:** Some parameters (scheduler intervals, analysis keywords, fetcher `max_results`) remain hardcoded.
 
 **Next Steps (Recommended Order):**
 
-1.  **Verify Scheduled Tweet Posting:**
-    *   **Action:** Run `python scheduler.py start` and let it run until the next scheduled post time (e.g., 12:00, 16:00, 20:00 UTC).
+1.  **Verify Scheduled Tweet Posting (Heroku):**
+    *   **Action:** Monitor Heroku logs for the `worker` dyno (`heroku logs --tail --app btcbuzzbot --dyno worker`) around the next scheduled post time (e.g., 12:00, 16:00, 20:00 UTC).
     *   **Observe:**
-        *   Monitor logs for the `scheduled_tweet_xxxx` job execution.
+        *   Confirm the correct `post_tweet_and_log` task runs.
         *   Note the `content_type` selected (`price`, `quote`, or `joke`).
-        *   Check the bot's Twitter account to see the actual tweet posted.
-        *   Confirm the tweet is not the same repetitive message (unless 'price' was chosen and other content failed).
+        *   Check the bot's Twitter account to see the actual tweet posted by Heroku.
+        *   Confirm the tweet content is varied.
         *   Check the `posts` table in the database for the log entry.
-    *   **Goal:** Confirm the randomized content logic resolves the original repetitive tweet issue.
+    *   **Goal:** Confirm the randomized content logic resolves the original repetitive tweet issue **in the deployed environment**.
 
-2.  **Update Frontend Display:**
+2.  **(Recommended) Fix DB Schema:**
+    *   **Action:** Connect to Heroku Postgres (`heroku pg:psql --app btcbuzzbot`) and run the `ALTER TABLE` commands mentioned previously to change `last_used` columns in `quotes` and `jokes` to `TIMESTAMP WITH TIME ZONE`.
+    *   **Goal:** Prevent potential errors when `get_random_content` is called by the scheduled tweet task.
+
+3.  **Update Frontend Display:**
     *   **Action:** Modify `templates/admin.html` to add columns for "Sentiment" and "Summary" to the "Potential News Tweets" table.
-    *   **Action:** Use Jinja templating to display `news_item.sentiment` and `news_item.summary` in the new columns.
+    *   **Action:** Use Jinja templating to display `news_item.sentiment` and `news_item.summary` in the new columns. Commit & redeploy.
 
-3.  **(Optional) Enable & Evaluate Analysis:**
-    *   **Action:** Ensure `vaderSentiment` is installed. Set the `GROQ_API_KEY` environment variable.
-    *   **Action:** Run the scheduler and observe if sentiment/LLM analysis runs correctly in the `news_analyzer` logs.
-    *   **Action:** Evaluate the quality of classification (`is_news`) and summaries in the DB/frontend.
-    *   **Action:** Refine prompts/scoring in `src/news_analyzer.py` as needed.
+4.  **(Optional) Enable & Evaluate Analysis:**
+    *   **Action:** Set `GROQ_API_KEY` in Heroku config vars. Ensure `vaderSentiment` installed correctly during build.
+    *   **Action:** Monitor worker logs for successful analysis execution.
+    *   **Action:** Evaluate the quality of classification/summaries.
+    *   **Action:** Refine prompts/scoring in `src/news_analyzer.py` as needed. Commit & redeploy.
 
-4.  **Monitor Rate Limiting:**
-    *   **Action:** While the bot runs long-term, periodically check logs for Twitter Rate Limit errors (429).
-    *   **Action:** If errors occur, reduce fetch frequency in `src/scheduler_engine.py` (e.g., `minutes=30` or `60`) or reduce `max_results` fetched in `src/news_fetcher.py`.
+5.  **Monitor Rate Limiting:**
+    *   **Action:** Check logs periodically for Twitter Rate Limit errors (429).
+    *   **Action:** If errors occur, adjust fetch frequency/count and redeploy.
 
-5.  **Move Configuration:**
-    *   **Action:** Move hardcoded values (scheduler intervals, `NEWS_KEYWORDS`, fetcher `max_results`) from `.py` files into `src/config.py` (loaded from environment variables/.env). 
+6.  **Fix LLM API Registration:**
+    *   **Action:** Update the registration logic in `src/llm_api.py` to avoid the deprecated `before_first_request` if LLM features will be used.
+
+7.  **Move Configuration:**
+    *   **Action:** Move hardcoded values into `src/config.py` / Heroku config vars. 

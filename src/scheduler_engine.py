@@ -113,14 +113,14 @@ def create_scheduler():
         scheduler.add_job(
             run_news_fetch_wrapper, # Async wrapper from tasks
             trigger='interval',
-            minutes=360,  # Changed from 120 to 360 (6 hours)
+            minutes=720,  # Changed from 360 to 720 (12 hours)
             id=NEWS_FETCH_JOB_ID,
             name='Fetch News Tweets',
             replace_existing=True,
             misfire_grace_time=300, # 5 minutes
             executor='default'
         )
-        logger.info("News fetching job added (interval: 360 minutes).") # Updated log message
+        logger.info("News fetching job added (interval: 720 minutes).") # Updated log message
     else:
         logger.warning("News fetching job NOT added: Task not available.")
 

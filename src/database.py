@@ -90,7 +90,7 @@ class Database:
         try:
             conn = self._get_postgres_connection()
             with conn.cursor() as cursor:
-                # Create prices table
+            # Create prices table
                 cursor.execute(
                     "CREATE TABLE IF NOT EXISTS prices (\n"
                     "    id SERIAL PRIMARY KEY,\n"
@@ -99,8 +99,8 @@ class Database:
                     "    source TEXT NOT NULL\n"
                     ");"
                 )
-                
-                # Create quotes table
+            
+            # Create quotes table
                 cursor.execute(
                     "CREATE TABLE IF NOT EXISTS quotes (\n"
                     "    id SERIAL PRIMARY KEY,\n"
@@ -111,8 +111,8 @@ class Database:
                     "    last_used TIMESTAMP WITH TIME ZONE\n"
                     ");"
                 )
-                
-                # Create jokes table
+            
+            # Create jokes table
                 cursor.execute(
                     "CREATE TABLE IF NOT EXISTS jokes (\n"
                     "    id SERIAL PRIMARY KEY,\n"
@@ -123,8 +123,8 @@ class Database:
                     "    last_used TIMESTAMP WITH TIME ZONE\n"
                     ");"
                 )
-                
-                # Create posts table
+            
+            # Create posts table
                 cursor.execute(
                     "CREATE TABLE IF NOT EXISTS posts (\n"
                     "    id SERIAL PRIMARY KEY,\n"
@@ -181,8 +181,8 @@ class Database:
                     default_schedule = "08:00,12:00,16:00,20:00"
                     cursor.execute("INSERT INTO scheduler_config (key, value) VALUES (%s, %s)", ('schedule', default_schedule))
                 # --- End Scheduler Tables ---
-                
-                conn.commit()
+            
+            conn.commit()
                 print("PostgreSQL tables checked/created.")
                 
         except Exception as e:
@@ -524,11 +524,11 @@ class Database:
                         INSERT INTO posts 
                         (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (tweet_id, tweet, datetime.utcnow().isoformat(), price, price_change, content_type, 0, 0)
-                    )
-                    await db.commit()
-                    return cursor.lastrowid
+                    """,
+                    (tweet_id, tweet, datetime.utcnow().isoformat(), price, price_change, content_type, 0, 0)
+                )
+                await db.commit()
+                return cursor.lastrowid
         except Exception as e:
             print(f"Error logging post: {e}")
             return -1
