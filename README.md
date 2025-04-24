@@ -7,7 +7,7 @@
   <p><a href="https://twitter.com/BTCBuzzBot" target="_blank"><strong>Follow the Bot on Twitter: @BTCBuzzBot</strong></a></p> 
 </div>
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/TStaniulis/BTCBuzzBot)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/DITreneris/btcbuzzbot)
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3112/)
 [![Flask](https://img.shields.io/badge/Flask-3.x-lightgrey)](https://flask.palletsprojects.com/)
 [![Twitter API](https://img.shields.io/badge/Twitter%20API-v2-1DA1F2)](https://developer.twitter.com/en/docs/twitter-api)
@@ -85,7 +85,7 @@
 
 1.  **Clone the repository**
     ```bash
-    git clone https://github.com/yourusername/btcbuzzbot.git # Replace with your repo URL
+    git clone https://github.com/DITreneris/btcbuzzbot.git
     cd btcbuzzbot
     ```
 

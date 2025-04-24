@@ -2,179 +2,175 @@
 
 ## Overview
 
-This roadmap outlines the strategic development plan for BTCBuzzBot, focusing first on enhancing content generation with Ollama LLM integration before expanding into more advanced ML/RL capabilities and multi-platform support. The development is structured in phases with realistic timelines and implementation goals.
+This roadmap outlines the strategic development plan for BTCBuzzBot, focusing first on consolidating the initial build and integrating the Groq LLM API for enhanced content generation before expanding into more advanced ML/RL capabilities and multi-platform support. The development is structured in phases with realistic timelines and implementation goals.
 
-## 🤖 Phase 1: Ollama LLM Integration for Enhanced Content (1-2 months)
+## ✅ Phase 1: Consolidation, Groq LLM Integration & Stability (Completed: April 2024)
 
-The immediate focus is on improving Twitter content quality and variety through local LLM integration.
+This phase focused on stabilizing the core application, externalizing configuration, and integrating an external LLM API (Groq) for initial content analysis.
 
-### 1. Ollama Setup & Configuration
-- **Week 1**: Install and configure Ollama with appropriate model (Mistral 7B or Llama-3 8B)
-- **Week 1-2**: Benchmark different models for quality, speed, and resource requirements
-- **Week 2**: Set up REST API interface for communicating with Ollama
+### 1. Core Application Stabilization & Refactoring
+- **April 22-23**: Debugged and fixed deployment regressions related to database interactions, asynchronous task execution, scheduler logic, and web application crashes.
+- **April 22-23**: Refactored core task components (`NewsFetcher`, `NewsAnalyzer`, `TweetHandler`) for proper initialization, shared database access, and environment variable usage.
+- **April 23**: Resolved persistent database schema and data type issues (`posts.timestamp`, `quotes.last_used`).
+- **April 23-24**: Addressed Twitter API rate limiting issues through interval adjustments and result limiting.
 
-### 2. Prompt Engineering & Content Generation
-- **Week 2-3**: Develop prompt templates for different content types:
-  - Price updates with market context
-  - Crypto jokes with current events references
-  - Motivational content with Bitcoin sentiment
-- **Week 3-4**: Create dynamic prompt system that incorporates:
-  - Current Bitcoin price and recent movement data
-  - Market sentiment indicators (bull/bear/sideways)
-  - Customizable tone parameters (informative, humorous, motivational)
+### 2. Configuration Externalization
+- **April 24**: Moved hardcoded configuration values (intervals, API keys, LLM parameters, content weights, thresholds) from Python modules (`scheduler_engine`, `scheduler_tasks`, `database`, `news_fetcher`, `news_analyzer`) to environment variables for better deployment flexibility via Heroku Config Vars.
 
-### 3. Integration with Twitter Bot
-- **Week 4-5**: Implement pipeline connecting Ollama output to Twitter posting system
-- **Week 5**: Develop content validation checks for:
-  - Character count limits
-  - Hashtag appropriateness
-  - Content policy compliance
-- **Week 6**: Add simple feedback mechanism to track performance of LLM-generated posts
+### 3. Groq LLM API Integration
+- **April 22-24**: Integrated the Groq API client (`llama3-8b-8192` model) directly into `NewsAnalyzer` for content summarization and sentiment analysis.
+- **April 24**: Removed obsolete local Ollama integration code (`llm_integration.py`, `llm_api.py`) and related UI components.
 
-### 4. Testing & Refinement
-- **Week 6-7**: Conduct A/B testing comparing current templates vs. LLM-generated content
-- **Week 7-8**: Refine prompts based on engagement data
-- **Week 8**: Implement automated scheduler with LLM content generation
+### 4. Initial Testing & Deployment
+- **April 23-24**: Successfully deployed fixes and verified core functionality (scheduled tweet posting, price updates, basic news analysis) on Heroku. Confirmed stability of `worker` and `web` dynos.
 
-## 📊 Phase 2: Data Collection & Engagement Analytics (2-3 months)
+## 🚧 Phase 2: Enhanced Content Generation & Analysis (Current Focus: ~1 month)
 
-Building on the LLM integration, this phase establishes the analytics foundation to improve content strategy.
+Building on the stable foundation, this phase focuses on improving the quality and relevance of generated content and establishing better monitoring.
+
+### 1. Refine `NewsAnalyzer` & Prompts
+- **Week 1**: Improve prompt engineering for `analyze_content` in `NewsAnalyzer` for more nuanced summaries and sentiment scores.
+- **Week 1-2**: Experiment with different prompt structures and potentially temperature/top_p settings (via config) for Groq API calls.
+
+### 2. Enhance `TweetHandler` Logic
+- **Week 2**: Refine the logic for selecting news items based on significance (sentiment score, keywords).
+- **Week 2-3**: Improve the prompt used to generate the final tweet text, incorporating analyzed sentiment/summary more effectively.
+- **Week 3**: *Cleanup:* Externalize remaining configuration from `tweet_handler.py` (e.g., `MAX_TWEET_LENGTH`, `PRICE_FETCH_RETRIES`).
+
+### 3. Basic Sentiment Trend Tracking
+- **Week 3-4**: Modify database schema and logic to store aggregated sentiment scores over time (e.g., daily/weekly averages).
+- **Week 4**: Add a basic visualization or display of sentiment trends to the `/admin` panel.
+
+### 4. Improve Monitoring & Observability
+- **Ongoing**: Add more detailed logging around analysis decisions, tweet selection, and potential errors.
+- **Week 4**: Implement basic error tracking or reporting (e.g., logging critical errors distinctly).
+
+## 📊 Phase 3: Data Collection & Engagement Analytics (Future: ~2-3 months)
+
+Establish the analytics foundation to objectively measure and improve content strategy.
 
 ### 1. Data Collection Infrastructure
-- **Week 1-3**: Set up automated collection of tweet performance metrics (likes, retweets, replies)
-- **Week 3-5**: Build a historical database tracking:
-  - Post content and structure
-  - BTC price at time of posting
-  - Content generation parameters used
+- Set up automated collection of tweet performance metrics (likes, retweets, replies) via Twitter API v2.
+- Build/Extend historical database tracking:
+  - Post content, type, and structure
+  - BTC price/sentiment at time of posting
+  - LLM parameters used (if varied)
   - Engagement metrics over time
-- **Week 5-7**: Implement basic sentiment analysis of post content and user responses
 
-### 2. ML-based Engagement Analysis
-- **Week 7-9**: Develop feature engineering pipeline for text attributes
-- **Week 9-11**: Train initial ML model to identify patterns in high-performing content
-- **Week 11-12**: Create analytics dashboard showing insights about LLM-generated content performance
+### 2. Engagement Analysis
+- Develop basic feature engineering pipeline for tweet attributes.
+- Analyze correlations between content types, sentiment, timing, and engagement metrics.
+- Create/Enhance analytics dashboard showing insights about content performance.
 
 ### 3. Performance Optimization
-- **Week 12-13**: Use analytics to refine LLM prompt parameters
-- **Week 13-14**: Optimize posting schedule based on engagement data
-- **Week 14-16**: Implement continuous improvement cycle for content strategy
+- Use analytics to further refine Groq prompt parameters and `TweetHandler` selection logic.
+- Optimize posting schedule based on engagement data.
+- Implement continuous improvement cycle for content strategy.
 
-## 🎨 Phase 3: Visual Content Enhancement (1-2 months)
+## 🎨 Phase 4: Visual Content Enhancement (Future: ~1-2 months)
 
-With text content generation established, this phase adds visual elements to increase engagement.
+Add visual elements to increase engagement.
 
 ### 1. Chart Generation System
-- **Week 1-2**: Implement automated chart generation for BTC price movements
-- **Week 3-4**: Develop custom visualization styles that match brand identity
-- **Week 5**: Integrate chart generation with LLM prompting for contextual descriptions
+- Implement automated chart generation for BTC price movements (e.g., using Matplotlib/Seaborn).
+- Develop custom visualization styles.
+- Integrate chart generation with tweet posting.
 
-### 2. Image Generation & Management
-- **Week 3-5**: Create branded visual templates for different post types
-- **Week 6-7**: Implement image attachment capability in the Twitter API integration
-- **Week 7-8**: Set up image repository and management system
+### 2. Image Generation & Management (Optional)
+- Explore simple branded visual templates (e.g., using Pillow).
+- Implement image attachment capability.
 
-## 🚀 Phase 4: Advanced ML & Reinforcement Learning (3-4 months)
+## 🚀 Phase 5: Advanced ML & Reinforcement Learning (Future: ~3-4 months)
 
-With a solid foundation of LLM content and analytics, this phase introduces more sophisticated learning algorithms.
+Introduce more sophisticated learning algorithms for content optimization.
 
-### 1. Contextual Bandit Implementation
-- **Week 1-3**: Research and develop appropriate bandit algorithm
-- **Week 4-6**: Define action space for content generation parameters
-- **Week 7-9**: Create state representation incorporating market conditions and timing factors
+### 1. Contextual Bandit Implementation (Explore)
+- Research and potentially develop a simple bandit algorithm for optimizing content parameters (type, tone, timing) based on engagement rewards.
+- Define action space and state representation (market conditions, time).
 
 ### 2. RL Pipeline Integration
-- **Week 10-12**: Set up automated training cycles for model updates
-- **Week 13-14**: Implement exploration-exploitation strategy
-- **Week 15-16**: Build monitoring dashboard for RL model performance
+- Set up automated feedback loops if using bandits/RL.
+- Implement exploration-exploitation strategy.
+- Build monitoring for RL model performance.
 
-### 3. Market Sentiment Integration
-- **Week 10-12**: Develop crypto sentiment scraping from major platforms
-- **Week 13-14**: Train custom sentiment classifier for cryptocurrency discussions
-- **Week 15-16**: Connect sentiment analysis with LLM prompt engineering system
+### 3. Enhanced Market Sentiment Integration
+- Develop more robust crypto sentiment analysis (potentially fine-tuning a model or using specialized services).
+- Connect sentiment analysis with LLM prompt engineering system more dynamically.
 
-## 🌐 Phase 5: Scaling & Multi-Platform Expansion (2-3 months)
+## 🌐 Phase 6: Scaling & Multi-Platform Expansion (Future: ~2-3 months)
 
-The final phase focuses on extending the bot's reach and optimizing infrastructure.
+Extend the bot's reach and optimize infrastructure.
 
 ### 1. Multi-Platform Extension
-- **Week 1-3**: Research and implement Mastodon integration
-- **Week 4-6**: Add Discord and Telegram capabilities
-- **Week 7-9**: Develop platform-specific content customization
+- Research and implement integration with other relevant platforms (e.g., Mastodon, Bluesky, Telegram, Discord).
+- Develop platform-specific content customization.
 
 ### 2. Infrastructure Enhancement
-- **Week 1-3**: Containerize application with Docker
-- **Week 4-6**: Implement robust error handling and monitoring
-- **Week 7-9**: Set up automated backups and database optimization
+- Containerize application with Docker for easier deployment and scaling.
+- Implement more robust error handling, monitoring, and alerting.
+- Set up automated database backups and optimization routines.
 
 ### 3. Advanced Admin Dashboard
-- **Week 10-12**: Develop comprehensive admin dashboard
-- **Week 12-16**: Implement manual override capabilities and direct publishing tools
+- Develop more comprehensive admin dashboard features.
+- Implement manual override capabilities and direct publishing tools.
 
 ## 📊 Success Metrics
 
-The success of the Ollama integration (Phase 1) will be measured by:
+Success will be measured iteratively:
 
-1. **Content Quality Metrics**:
-   - 40% increase in engagement compared to template-based posts
-   - 50% reduction in time spent on content creation
-   - Greater variety in post structure and language
+1.  **Phase 2 Metrics**:
+    *   Demonstrable improvement in relevance/quality of LLM-generated summaries/sentiment (qualitative assessment).
+    *   Successful implementation of basic sentiment trend tracking.
+    *   Clearer logging for easier debugging.
+    *   Measurable reduction in configuration hardcoding (`tweet_handler.py`).
 
-2. **Technical Performance**:
-   - <2 second average generation time per post
-   - <5% rejection rate for generated content
-   - Smooth integration with existing scheduling system
-
-3. **Overall Project Metrics** (across all phases):
-   - 30% increase in average post engagement
-   - 25% growth in follower count
-   - 99.9% uptime for the bot service
-   - Expansion to at least 3 platforms with active communities
+2.  **Overall Project Metrics** (Longer Term):
+    *   Increase in average post engagement (likes, retweets).
+    *   Growth in follower count.
+    *   High uptime for the bot service (>99.5%).
+    *   Expansion to at least 1-2 additional platforms.
 
 ## 🛠️ Resource Requirements
 
-1. **Immediate Needs for Ollama Integration**:
-   - Local server with minimum 16GB RAM for model hosting
-   - Python environment with LangChain or similar framework
-   - Development system for testing different models
+1.  **Current Needs**:
+    *   Reliable Groq API access (consider rate limits/potential costs).
+    *   Python environment with necessary libraries.
+    *   Heroku hosting (current setup sufficient for now).
 
-2. **Development Team**:
-   - 1 ML Engineer with LLM experience
-   - 1 Full-stack Developer
-   - 1 Data Scientist (part-time, for later phases)
+2.  **Development Team**:
+    *   1 Developer (covering full-stack and basic ML/data analysis).
 
-3. **Infrastructure**:
-   - Cloud hosting with auto-scaling capabilities
-   - GPU resources for model training (for later phases)
-   - Dedicated database instance
+3.  **Future Infrastructure Needs (Phases 4-6)**:
+    *   Potentially higher tier Heroku plan or alternative cloud hosting for scaling.
+    *   Dedicated database instance (if exceeding limits).
+    *   Image storage solution (if implementing Phase 4 visuals).
+    *   Potentially GPU resources for advanced ML model training (Phase 5).
 
 ## ⚠️ Potential Challenges & Mitigations
 
-1. **LLM Content Quality**:
-   - **Challenge**: Ensuring LLM output maintains brand voice and accuracy
-   - **Mitigation**: Implement robust prompt engineering and content validation
-
-2. **Resource Constraints**:
-   - **Challenge**: Ollama models require significant computing resources
-   - **Mitigation**: Test smaller models or consider cloud-based APIs for production
-
-3. **API Rate Limiting**:
-   - **Challenge**: Twitter imposes strict posting frequency limits
-   - **Mitigation**: Implement robust queue system with scheduled distribution
-
-4. **Model Performance Degradation**:
-   - **Challenge**: Market terminology and sentiment changes over time
-   - **Mitigation**: Regular prompt template updates and model fine-tuning
+1.  **LLM API Costs & Rate Limits (Groq)**:
+    *   **Challenge**: Exceeding free tier limits or hitting rate limits.
+    *   **Mitigation**: Monitor usage closely, implement caching for analysis results where feasible, optimize API call frequency, consider paid plans if necessary.
+1.  **LLM Content Quality/Consistency**:
+    *   **Challenge**: Ensuring Groq output remains accurate, relevant, and avoids generic/repetitive content.
+    *   **Mitigation**: Continuous prompt engineering, implement content validation/filtering logic, potentially experiment with different models via Groq if needed.
+2.  **Twitter API Rate Limiting**:
+    *   **Challenge**: Hitting limits for fetching news or posting tweets.
+    *   **Mitigation**: Careful scheduling, optimized API usage, robust error handling with backoff/retry logic.
+3.  **Market Volatility & Sentiment Shifts**:
+    *   **Challenge**: Content becoming quickly outdated or misinterpreting rapid market changes.
+    *   **Mitigation**: Faster analysis cycles (balanced with rate limits), robust sentiment analysis, potentially manual override capabilities (Phase 6).
 
 ## 🔄 Iterative Development Approach
 
 This roadmap will follow an agile development methodology with:
 
-- 2-week sprint cycles
-- Regular stakeholder reviews
-- Continuous integration and deployment
-- Frequent user feedback collection and incorporation
+- Focus on delivering value incrementally.
+- Regular reviews of progress and priorities.
+- Continuous integration and deployment via Heroku.
+- Adapting plans based on performance data and feedback.
 
-Each phase builds on the learnings from previous phases, with the flexibility to adjust priorities based on performance data and user feedback.
+Each phase builds on the learnings from previous phases, with the flexibility to adjust priorities.
 
 ---
 

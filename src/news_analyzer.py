@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import asyncio
+import json # Import json module
 from typing import List, Dict, Any, Tuple, Optional
 
 # Ensure src is in the path if running directly
@@ -57,11 +58,33 @@ NEWS_KEYWORDS = ["breaking", "alert", "report", "announced", "launch", "partners
 DEFAULT_GROQ_MODEL = "llama3-8b-8192" # Define a default model
 
 # --- LLM Configuration Defaults ---
-DEFAULT_LLM_CLASSIFY_TEMP = 0.1
-DEFAULT_LLM_CLASSIFY_MAX_TOKENS = 10
-DEFAULT_LLM_SUMMARIZE_TEMP = 0.5
-DEFAULT_LLM_SUMMARIZE_MAX_TOKENS = 100
+# DEFAULT_LLM_CLASSIFY_TEMP = 0.1 # No longer needed
+# DEFAULT_LLM_CLASSIFY_MAX_TOKENS = 10 # No longer needed
+DEFAULT_LLM_ANALYZE_TEMP = 0.2 # New temp for combined analysis
+DEFAULT_LLM_ANALYZE_MAX_TOKENS = 150 # Adjusted max tokens for JSON + summary
+DEFAULT_LLM_SUMMARIZE_TEMP = 0.5 # Keep for potential separate use? Or remove? Let's remove for now.
+DEFAULT_LLM_SUMMARIZE_MAX_TOKENS = 100 # Keep for potential separate use? Or remove? Let's remove for now.
 DEFAULT_NEWS_ANALYSIS_BATCH_SIZE = 30
+
+# --- New Combined Analysis Prompt ---
+_ANALYSIS_PROMPT_JSON = """
+Analyze the provided tweet text about Bitcoin. Determine its significance for Bitcoin news and its overall sentiment towards Bitcoin's impact or price.
+
+Provide your analysis ONLY in JSON format with the following keys:
+- "significance": String. Rate the news significance as "Low", "Medium", or "High".
+    - "High" for major events (regulation, adoption, large price swings >5%, exchange issues, major project launches).
+    - "Medium" for notable updates (partnerships, minor technical updates, analyst predictions from reputable sources).
+    - "Low" for generic price commentary, memes, minor news, or personal opinions without broad impact.
+- "sentiment": String. Rate the sentiment towards Bitcoin's impact/price as "Positive", "Negative", or "Neutral".
+- "summary": String. Provide a concise one-sentence summary (max 200 chars) of the key information, suitable for context.
+
+Tweet Text:
+\"\"\"
+{text}
+\"\"\"
+
+JSON Analysis:
+"""
 
 class NewsAnalyzer:
     # Modify __init__ to accept db_instance and read env vars directly
@@ -72,10 +95,13 @@ class NewsAnalyzer:
         self.groq_model = os.environ.get('GROQ_MODEL', DEFAULT_GROQ_MODEL)
         
         # --- Read LLM parameters from env vars ---
-        self.llm_classify_temp = float(os.environ.get('LLM_CLASSIFY_TEMP', DEFAULT_LLM_CLASSIFY_TEMP))
-        self.llm_classify_max_tokens = int(os.environ.get('LLM_CLASSIFY_MAX_TOKENS', DEFAULT_LLM_CLASSIFY_MAX_TOKENS))
-        self.llm_summarize_temp = float(os.environ.get('LLM_SUMMARIZE_TEMP', DEFAULT_LLM_SUMMARIZE_TEMP))
-        self.llm_summarize_max_tokens = int(os.environ.get('LLM_SUMMARIZE_MAX_TOKENS', DEFAULT_LLM_SUMMARIZE_MAX_TOKENS))
+        self.llm_analyze_temp = float(os.environ.get('LLM_ANALYZE_TEMP', DEFAULT_LLM_ANALYZE_TEMP))
+        self.llm_analyze_max_tokens = int(os.environ.get('LLM_ANALYZE_MAX_TOKENS', DEFAULT_LLM_ANALYZE_MAX_TOKENS))
+        # Remove old classify/summarize params
+        # self.llm_classify_temp = float(os.environ.get('LLM_CLASSIFY_TEMP', DEFAULT_LLM_CLASSIFY_TEMP))
+        # self.llm_classify_max_tokens = int(os.environ.get('LLM_CLASSIFY_MAX_TOKENS', DEFAULT_LLM_CLASSIFY_MAX_TOKENS))
+        # self.llm_summarize_temp = float(os.environ.get('LLM_SUMMARIZE_TEMP', DEFAULT_LLM_SUMMARIZE_TEMP))
+        # self.llm_summarize_max_tokens = int(os.environ.get('LLM_SUMMARIZE_MAX_TOKENS', DEFAULT_LLM_SUMMARIZE_MAX_TOKENS))
         self.analysis_batch_size = int(os.environ.get('NEWS_ANALYSIS_BATCH_SIZE', DEFAULT_NEWS_ANALYSIS_BATCH_SIZE))
         # --- End LLM parameters ---
         
@@ -106,71 +132,73 @@ class NewsAnalyzer:
         except Exception as e:
             logger.error(f"Error during NewsAnalyzer initialization: {e}", exc_info=True)
 
-    async def _classify_news_with_llm(self, text: str) -> Tuple[bool, float]:
-        """Uses Groq LLM to classify if the text is significant news."""
-        if not self.groq_client:
-            return False, 0.0 # LLM disabled
+    # --- Remove old _classify_news_with_llm method ---
+    # async def _classify_news_with_llm(self, text: str) -> Tuple[bool, float]:
+    #     ... (old code) ...
 
-        prompt = (
-            "Analyze the following tweet text. Is it reporting potentially significant news related to Bitcoin (e.g., major price moves, adoption, regulation, technical updates, market events)? "
-            "Ignore generic price updates unless they are unusually large or accompanied by significant context. Ignore spam, memes, or purely personal opinions unless they reflect a major event."
-            "Respond with only YES or NO."
-            "\n\nTweet Text: "
-            f'"{text}"'
-            "\n\nIs this significant news? (YES/NO):"
-        )
+    # --- Remove old _summarize_with_llm method ---
+    # async def _summarize_with_llm(self, text: str) -> Optional[str]:
+    #     ... (old code) ...
 
-        try:
-            chat_completion = await self.groq_client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=self.groq_model,
-                temperature=self.llm_classify_temp,      # Use configured value
-                max_tokens=self.llm_classify_max_tokens, # Use configured value
-            )
-            response_text = chat_completion.choices[0].message.content.strip().upper()
-            logger.debug(f"LLM Classification for '{text[:50]}...': {response_text}")
-
-            is_news = response_text.startswith("YES")
-            # Simple confidence score based on YES/NO
-            score = 1.0 if is_news else 0.1 # Assign low score if not news
-            return is_news, score
-        except Exception as e:
-            logger.error(f"Groq API error during classification: {e}", exc_info=False) # Avoid full traceback spam
-            return False, 0.0 # Default to not news on error
-
-    async def _summarize_with_llm(self, text: str) -> Optional[str]:
-        """Uses Groq LLM to summarize the text."""
+    # +++ New Combined Analysis Method +++
+    async def _analyze_content_with_llm(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Uses Groq LLM to perform combined analysis (significance, sentiment, summary)
+        and returns results as a dictionary parsed from JSON.
+        """
         if not self.groq_client:
             return None # LLM disabled
 
-        prompt = f"Summarize the key information in the following tweet regarding Bitcoin in one concise sentence:\n\nTweet Text: \"{text}\"\n\nSummary:"
+        prompt = _ANALYSIS_PROMPT_JSON.format(text=text)
 
         try:
             chat_completion = await self.groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
                 model=self.groq_model,
-                temperature=self.llm_summarize_temp,      # Use configured value
-                max_tokens=self.llm_summarize_max_tokens, # Use configured value
+                temperature=self.llm_analyze_temp,      # Use new configured value
+                max_tokens=self.llm_analyze_max_tokens, # Use new configured value
+                # Add response_format for JSON output if supported and needed
+                # response_format={"type": "json_object"}, # Check Groq API docs if needed
             )
-            summary = chat_completion.choices[0].message.content.strip()
-            logger.debug(f"LLM Summary for '{text[:50]}...': {summary}")
-            return summary
+            response_content = chat_completion.choices[0].message.content.strip()
+            
+            # --- Robust JSON Parsing ---
+            try:
+                # Try finding JSON block even if there's extra text
+                json_start = response_content.find('{')
+                json_end = response_content.rfind('}')
+                if json_start != -1 and json_end != -1 and json_end > json_start:
+                    json_string = response_content[json_start:json_end+1]
+                    analysis_result = json.loads(json_string)
+                    
+                    # Validate expected keys
+                    if all(k in analysis_result for k in ["significance", "sentiment", "summary"]):
+                         logger.debug(f"LLM Analysis for '{text[:50]}...': {analysis_result}")
+                         return analysis_result
+                    else:
+                        logger.warning(f"LLM JSON response missing expected keys for '{text[:50]}...': {json_string}")
+                        return None
+                else:
+                     logger.warning(f"Could not find valid JSON object in LLM response for '{text[:50]}...': {response_content}")
+                     return None
+            except json.JSONDecodeError as json_err:
+                logger.error(f"Failed to parse JSON from LLM response for '{text[:50]}...': {json_err}. Response: {response_content}")
+                return None
+            # --- End Robust JSON Parsing ---
+
         except Exception as e:
-            logger.error(f"Groq API error during summarization: {e}", exc_info=False)
-            return None
+            # Check for rate limit errors specifically if possible (depends on Groq client exceptions)
+            # Example: if isinstance(e, groq.RateLimitError): logger.warning(...)
+            logger.error(f"Groq API error during combined analysis: {e}", exc_info=False) # Avoid full traceback spam
+            return None # Default to None on error
 
     async def analyze_tweets(self, tweets: List[Dict[str, Any]]):
         """Analyzes a batch of tweets and updates the DB with results."""
-        # Remove initialization check here, it's done in run_cycle
-        # if not self.initialized or not self.db:
-        #     logger.error("NewsAnalyzer not initialized or DB unavailable.")
-        #     return
-
         processed_count = 0
         updated_count = 0
         llm_tasks = [] # List to hold LLM analysis tasks
 
-        # --- Stage 1: Initial Processing & Create LLM Tasks --- 
+        # --- Stage 1: Initial Processing & Create LLM Tasks ---
         analysis_data = {} # Store intermediate results by original_id
         for tweet in tweets:
             original_id = tweet.get('original_tweet_id')
@@ -180,92 +208,123 @@ class NewsAnalyzer:
 
             processed_count += 1
             tweet_text = tweet.get('tweet_text', '')
-            
-            # Perform VADER sentiment analysis (synchronous)
-            sentiment_score = None
+
+            # Perform VADER sentiment analysis (keep for now)
+            vader_sentiment_score = None
             if self.vader_analyzer:
                  vs = self.vader_analyzer.polarity_scores(tweet_text)
-                 sentiment_score = vs['compound'] # Use the compound score (-1 to 1)
-            
-            # Perform basic keyword check (synchronous)
-            keyword_hits = [keyword for keyword in NEWS_KEYWORDS if keyword in tweet_text.lower()]
-            keyword_score = min(1.0, 0.1 * len(keyword_hits)) if keyword_hits else 0.0 # Lower weight for keywords
+                 vader_sentiment_score = vs['compound'] # Use the compound score (-1 to 1)
 
-            # Store initial results
+            # Keyword check removed/simplified as LLM handles significance now
+            # keyword_hits = [keyword for keyword in NEWS_KEYWORDS if keyword in tweet_text.lower()]
+            # keyword_score = min(1.0, 0.1 * len(keyword_hits)) if keyword_hits else 0.0
+
+            # Store initial results (placeholders for LLM output)
             analysis_data[original_id] = {
-                'sentiment': sentiment_score,
-                'keyword_score': keyword_score, # Store intermediate keyword score
-                'is_news': False, # Default, LLM will override
-                'news_score': keyword_score, # Default score, LLM might override
-                'summary': None
+                'sentiment': vader_sentiment_score, # Store VADER score initially
+                'news_score': 0.0, # Default score, LLM will provide significance
+                'summary': None,   # LLM will provide
+                'llm_significance': None, # Store raw LLM significance
+                'llm_sentiment': None     # Store raw LLM sentiment
             }
 
             # Create LLM analysis tasks if client is available
             if self.groq_client:
-                llm_tasks.append(self._run_llm_analysis(original_id, tweet_text, analysis_data))
+                # Pass analysis_data dict to the task runner
+                llm_tasks.append(self._run_single_llm_analysis(original_id, tweet_text, analysis_data[original_id]))
 
-        # --- Stage 2: Run LLM Analysis Concurrently --- 
+        # --- Stage 2: Run LLM Analysis Concurrently ---
         if llm_tasks:
             logger.info(f"Running LLM analysis for {len(llm_tasks)} tweets...")
             await asyncio.gather(*llm_tasks)
             logger.info("LLM analysis batch completed.")
 
-        # --- Stage 3: Update Database --- 
+        # --- Stage 3: Update Database ---
         logger.info(f"Updating database for {processed_count} processed tweets...")
         for original_id, results in analysis_data.items():
             # Prepare final results for DB update
-            db_update_payload = {
-                'is_news': results['is_news'],
-                'news_score': results['news_score'],
-                'sentiment': results['sentiment'],
-                'summary': results['summary']
-            }
+            sentiment_to_store = results['sentiment'] # Use LLM sentiment if available, else VADER
+            news_score_to_store = results['news_score']
+            summary_to_store = results['summary']
+
             try:
-                success = await self.db.update_news_tweet_analysis(original_id, db_update_payload)
-                if success:
-                    updated_count += 1
+                await self.db.update_tweet_analysis(
+                    original_tweet_id=original_id,
+                    sentiment=sentiment_to_store,
+                    news_score=news_score_to_store,
+                    summary=summary_to_store,
+                    llm_raw_analysis=json.dumps({ # Store raw LLM output too for debugging/future use
+                        'significance': results.get('llm_significance'),
+                        'sentiment': results.get('llm_sentiment')
+                    }) if results.get('llm_significance') else None 
+                )
+                updated_count += 1
+                # logger.debug(f"Successfully updated analysis for tweet ID {original_id}") # DEBUG level
             except Exception as e:
-                logger.error(f"Failed to update analysis for tweet {original_id}: {e}", exc_info=True)
-        
+                logger.error(f"Failed to update DB for tweet ID {original_id}: {e}", exc_info=False)
+
+
         logger.info(f"Finished analyzing batch. Processed: {processed_count}, Updated DB: {updated_count}")
 
-    async def _run_llm_analysis(self, original_id: str, text: str, analysis_data: Dict):
-        """Helper coroutine to run classification and optional summarization for one tweet."""
-        try:
-            is_llm_news, llm_score = await self._classify_news_with_llm(text)
-            analysis_data[original_id]['is_news'] = is_llm_news
-            analysis_data[original_id]['news_score'] = llm_score # Use LLM score as primary score
 
-            # Summarize only if classified as news by LLM
-            if is_llm_news:
-                summary = await self._summarize_with_llm(text)
-                analysis_data[original_id]['summary'] = summary
-        except Exception as e:
-             logger.error(f"Error during LLM analysis task for {original_id}: {e}", exc_info=False)
+    # Helper method to run LLM analysis for a single tweet and update results dict
+    async def _run_single_llm_analysis(self, original_id: str, text: str, results_dict: Dict):
+        """Runs the combined LLM analysis and updates the provided results dictionary."""
+        llm_result = await self._analyze_content_with_llm(text)
 
-    # --- New run_cycle method --- 
+        if llm_result:
+            # Store raw LLM results
+            results_dict['llm_significance'] = llm_result.get('significance')
+            results_dict['llm_sentiment'] = llm_result.get('sentiment')
+            results_dict['summary'] = llm_result.get('summary')
+
+            # --- Map LLM Significance to news_score ---
+            significance = results_dict['llm_significance']
+            if significance == "High":
+                results_dict['news_score'] = 1.0
+            elif significance == "Medium":
+                results_dict['news_score'] = 0.5
+            elif significance == "Low":
+                results_dict['news_score'] = 0.1
+            else:
+                 results_dict['news_score'] = 0.0 # Default if unexpected value
+
+            # --- Map LLM Sentiment to sentiment score (override VADER) ---
+            sentiment = results_dict['llm_sentiment']
+            if sentiment == "Positive":
+                results_dict['sentiment'] = 1.0
+            elif sentiment == "Negative":
+                results_dict['sentiment'] = -1.0
+            elif sentiment == "Neutral":
+                results_dict['sentiment'] = 0.0
+            # Keep VADER score if LLM sentiment is missing/invalid
+
+        # No need to return anything, modifies dict in place
+
     async def run_cycle(self):
-        """Runs a single cycle of fetching unprocessed tweets and analyzing them using this instance."""
+        """Fetches unprocessed tweets, analyzes them, and updates the database."""
         if not self.initialized or not self.db:
-            logger.error("Cannot run analysis cycle: NewsAnalyzer not initialized or DB unavailable.")
+            logger.error("NewsAnalyzer not initialized or DB unavailable. Skipping cycle.")
             return
 
+        logger.info("Starting news analysis cycle...")
         try:
-            logger.info("Starting news analysis cycle...")
-            # Fetch unprocessed tweets using configured batch size
-            unprocessed_tweets = await self.db.get_unprocessed_news_tweets(limit=self.analysis_batch_size) # Use configured value
+            # Fetch tweets requiring analysis (limit by batch size)
+            tweets_to_analyze = await self.db.get_tweets_for_analysis(limit=self.analysis_batch_size)
 
-            if unprocessed_tweets:
-                logger.info(f"Fetched {len(unprocessed_tweets)} tweets for analysis.")
-                # Call self.analyze_tweets
-                await self.analyze_tweets(unprocessed_tweets)
-            else:
-                logger.info("No unprocessed tweets found to analyze.")
+            if not tweets_to_analyze:
+                logger.info("No new tweets found requiring analysis.")
+                return
+
+            logger.info(f"Fetched {len(tweets_to_analyze)} tweets for analysis.")
+
+            # Analyze the batch
+            await self.analyze_tweets(tweets_to_analyze)
 
             logger.info("News analysis cycle finished.")
 
         except Exception as e:
-            logger.error(f"Error during news analysis cycle execution: {e}", exc_info=True)
+            logger.error(f"Error during news analysis cycle: {e}", exc_info=True)
 
 # --- Remove standalone run_analysis_cycle function --- 
 # async def run_analysis_cycle():

@@ -66,4 +66,30 @@ Focus on consolidating stability and addressing remaining cleanup before impleme
 *   **Clear Commits:** Use descriptive commit messages linking back to tasks or issues.
 *   **Test Locally:** Where possible, test changes locally before deploying to Heroku.
 
-This plan provides a clear path forward, focusing on solidifying the current application before expanding its capabilities. Let me know if this aligns with your vision. 
+This plan provides a clear path forward, focusing on solidifying the current application before expanding its capabilities. Let me know if this aligns with your vision.
+
+## 5. Session Progress (April 24th - Afternoon)
+
+*   **Configuration Externalization (Completed):**
+    *   Finished externalizing remaining configuration values (content weights, duplicate check minutes, content reuse days, news fetcher max results, LLM params, tweet handler settings) to environment variables.
+    *   Removed Ollama-specific configuration and related code as Groq is now the primary LLM.
+*   **Technical Debt Addressed:**
+    *   Fixed Flask `before_first_request` deprecation warning by removing the unused `llm_api.py` entirely.
+    *   Obsolete Ollama integration code (`llm_integration.py`, `llm_api.py`) and UI elements were removed, simplifying the codebase.
+*   **Roadmap Update:**
+    *   Updated `roadmap.md` to reflect the switch to Groq, mark Phase 1 (Consolidation, Groq Integration, Stability) as complete, and refine the focus for Phase 2 (Enhanced Content Generation & Analysis).
+*   **News Analysis Refactoring:**
+    *   Refactored `NewsAnalyzer` (`src/news_analyzer.py`) to use a single Groq API call for combined analysis (significance, sentiment, summary).
+    *   Implemented JSON output parsing for more structured and reliable results.
+    *   Added `llm_raw_analysis` TEXT column to `news_tweets` table via `ALTER TABLE` command in Heroku PSQL.
+    *   Updated `Database.update_tweet_analysis` (`src/database.py`) to store the raw LLM JSON output.
+    *   Added new environment variables (`LLM_ANALYZE_TEMP`, `LLM_ANALYZE_MAX_TOKENS`) to Heroku Config Vars.
+    *   Deployed these changes.
+*   **Price Change Calculation Fix:**
+    *   Identified that the 24h price change was always 0.00% because the calculation logic was missing.
+    *   Added `Database.get_price_from_approx_24h_ago` method to `src/database.py` to fetch the price from ~24 hours prior.
+    *   Updated `TweetHandler.post_tweet` (`src/tweet_handler.py`) to call the new database method and correctly calculate the `price_change_24h`.
+    *   Deployed this fix.
+*   **Current Status (End of Session):**
+    *   The refactored news analysis code and the price change calculation fix have been deployed to Heroku.
+    *   **Next Action:** Monitor the next scheduled tweet job (16:00 UTC) via logs (`heroku logs --tail --app btcbuzzbot --dyno worker`) to verify the price change calculation is working correctly and the tweet displays the accurate percentage change. 
