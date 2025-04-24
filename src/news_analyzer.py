@@ -56,6 +56,13 @@ logger = logging.getLogger(__name__)
 NEWS_KEYWORDS = ["breaking", "alert", "report", "announced", "launch", "partnership", "regulation", "sec", "etf", "fed"]
 DEFAULT_GROQ_MODEL = "llama3-8b-8192" # Define a default model
 
+# --- LLM Configuration Defaults ---
+DEFAULT_LLM_CLASSIFY_TEMP = 0.1
+DEFAULT_LLM_CLASSIFY_MAX_TOKENS = 10
+DEFAULT_LLM_SUMMARIZE_TEMP = 0.5
+DEFAULT_LLM_SUMMARIZE_MAX_TOKENS = 100
+DEFAULT_NEWS_ANALYSIS_BATCH_SIZE = 30
+
 class NewsAnalyzer:
     # Modify __init__ to accept db_instance and read env vars directly
     def __init__(self, db_instance: Optional[Database] = None):
@@ -63,6 +70,15 @@ class NewsAnalyzer:
         self.vader_analyzer = None
         self.groq_client = None
         self.groq_model = os.environ.get('GROQ_MODEL', DEFAULT_GROQ_MODEL)
+        
+        # --- Read LLM parameters from env vars ---
+        self.llm_classify_temp = float(os.environ.get('LLM_CLASSIFY_TEMP', DEFAULT_LLM_CLASSIFY_TEMP))
+        self.llm_classify_max_tokens = int(os.environ.get('LLM_CLASSIFY_MAX_TOKENS', DEFAULT_LLM_CLASSIFY_MAX_TOKENS))
+        self.llm_summarize_temp = float(os.environ.get('LLM_SUMMARIZE_TEMP', DEFAULT_LLM_SUMMARIZE_TEMP))
+        self.llm_summarize_max_tokens = int(os.environ.get('LLM_SUMMARIZE_MAX_TOKENS', DEFAULT_LLM_SUMMARIZE_MAX_TOKENS))
+        self.analysis_batch_size = int(os.environ.get('NEWS_ANALYSIS_BATCH_SIZE', DEFAULT_NEWS_ANALYSIS_BATCH_SIZE))
+        # --- End LLM parameters ---
+        
         self.initialized = False
 
         if not self.db:
@@ -107,9 +123,9 @@ class NewsAnalyzer:
         try:
             chat_completion = await self.groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
-                model=self.groq_model, # Use self.groq_model read from env
-                temperature=0.1, # Low temperature for classification
-                max_tokens=10,
+                model=self.groq_model,
+                temperature=self.llm_classify_temp,      # Use configured value
+                max_tokens=self.llm_classify_max_tokens, # Use configured value
             )
             response_text = chat_completion.choices[0].message.content.strip().upper()
             logger.debug(f"LLM Classification for '{text[:50]}...': {response_text}")
@@ -132,9 +148,9 @@ class NewsAnalyzer:
         try:
             chat_completion = await self.groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
-                model=self.groq_model, # Use self.groq_model read from env
-                temperature=0.5,
-                max_tokens=100, # Allow more tokens for summary
+                model=self.groq_model,
+                temperature=self.llm_summarize_temp,      # Use configured value
+                max_tokens=self.llm_summarize_max_tokens, # Use configured value
             )
             summary = chat_completion.choices[0].message.content.strip()
             logger.debug(f"LLM Summary for '{text[:50]}...': {summary}")
@@ -236,8 +252,8 @@ class NewsAnalyzer:
 
         try:
             logger.info("Starting news analysis cycle...")
-            # Fetch a smaller batch of unprocessed tweets to reduce Groq load
-            unprocessed_tweets = await self.db.get_unprocessed_news_tweets(limit=30) # Reduced limit from 100
+            # Fetch unprocessed tweets using configured batch size
+            unprocessed_tweets = await self.db.get_unprocessed_news_tweets(limit=self.analysis_batch_size) # Use configured value
 
             if unprocessed_tweets:
                 logger.info(f"Fetched {len(unprocessed_tweets)} tweets for analysis.")

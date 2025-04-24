@@ -59,6 +59,19 @@ NEWS_ANALYZE_JOB_ID = 'analyze_news_tweets'
 DB_PATH = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db') 
 SCHEDULER_TIMEZONE = pytz.utc 
 
+# --- Externalize Intervals ---
+DEFAULT_RESCHEDULE_MINUTES = 30
+DEFAULT_NEWS_FETCH_MINUTES = 720
+DEFAULT_NEWS_ANALYZE_MINUTES = 30
+DEFAULT_RESCHEDULE_GRACE_SECONDS = 60
+DEFAULT_NEWS_FETCH_GRACE_SECONDS = 300
+
+RESCHEDULE_INTERVAL_MINUTES = int(os.environ.get('RESCHEDULE_INTERVAL_MINUTES', DEFAULT_RESCHEDULE_MINUTES))
+NEWS_FETCH_INTERVAL_MINUTES = int(os.environ.get('NEWS_FETCH_INTERVAL_MINUTES', DEFAULT_NEWS_FETCH_MINUTES))
+NEWS_ANALYZE_INTERVAL_MINUTES = int(os.environ.get('NEWS_ANALYZE_INTERVAL_MINUTES', DEFAULT_NEWS_ANALYZE_MINUTES))
+RESCHEDULE_GRACE_SECONDS = int(os.environ.get('RESCHEDULE_GRACE_SECONDS', DEFAULT_RESCHEDULE_GRACE_SECONDS))
+NEWS_FETCH_GRACE_SECONDS = int(os.environ.get('NEWS_FETCH_GRACE_SECONDS', DEFAULT_NEWS_FETCH_GRACE_SECONDS))
+
 # --- Logging Setup ---
 # Configure root logger or specific loggers
 logging.basicConfig(
@@ -100,12 +113,12 @@ def create_scheduler():
     scheduler.add_job(
         reschedule_tweet_jobs,
         trigger='interval',
-        minutes=30, # Check for schedule changes every 30 mins
+        minutes=RESCHEDULE_INTERVAL_MINUTES, # Use variable
         id=RESCHEDULE_JOB_ID,
         name='Refresh Tweet Schedule from DB',
         args=[scheduler], # Pass scheduler instance
         replace_existing=True,
-        misfire_grace_time=60 # Allow some delay if missed
+        misfire_grace_time=RESCHEDULE_GRACE_SECONDS # Use variable
     )
 
     # 2. Job to fetch news periodically (if available)
@@ -113,14 +126,14 @@ def create_scheduler():
         scheduler.add_job(
             run_news_fetch_wrapper, # Async wrapper from tasks
             trigger='interval',
-            minutes=720,  # Changed from 360 to 720 (12 hours)
+            minutes=NEWS_FETCH_INTERVAL_MINUTES,  # Use variable
             id=NEWS_FETCH_JOB_ID,
             name='Fetch News Tweets',
             replace_existing=True,
-            misfire_grace_time=300, # 5 minutes
+            misfire_grace_time=NEWS_FETCH_GRACE_SECONDS, # Use variable
             executor='default'
         )
-        logger.info("News fetching job added (interval: 720 minutes).") # Updated log message
+        logger.info(f"News fetching job added (interval: {NEWS_FETCH_INTERVAL_MINUTES} minutes).") # Updated log message
     else:
         logger.warning("News fetching job NOT added: Task not available.")
 
@@ -129,13 +142,12 @@ def create_scheduler():
         scheduler.add_job(
             run_analysis_cycle_wrapper, # Async wrapper from tasks
             trigger='interval',
-            # Increase interval to reduce Groq rate limit issues
-            minutes=30,
+            minutes=NEWS_ANALYZE_INTERVAL_MINUTES, # Use variable
             id=NEWS_ANALYZE_JOB_ID,
             name='Analyze News Tweets',
             replace_existing=True
         )
-        logger.info("News analysis job added (interval: 30 minutes).") # Updated log
+        logger.info(f"News analysis job added (interval: {NEWS_ANALYZE_INTERVAL_MINUTES} minutes).") # Updated log
     else:
         logger.warning("News analysis job NOT added: Task not available.")
 

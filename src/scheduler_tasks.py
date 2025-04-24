@@ -147,7 +147,20 @@ async def post_tweet_and_log():
         logger.info("Executing task: post_tweet_and_log")
         
         # --- Choose content type and get content --- 
-        content_types = ['price', 'quote', 'joke'] 
+        # Default content types if environment variable is not set or invalid
+        default_content_types = ['price', 'quote', 'joke']
+        content_types_str = os.environ.get('TWEET_CONTENT_TYPES', None)
+        
+        if content_types_str:
+            # Split the string by comma and strip whitespace
+            content_types_list = [item.strip() for item in content_types_str.split(',') if item.strip()]
+            # Use the list from env var only if it's not empty, otherwise use default
+            content_types = content_types_list if content_types_list else default_content_types
+            logger.debug(f"Using content types from TWEET_CONTENT_TYPES: {content_types}")
+        else:
+            content_types = default_content_types
+            logger.debug(f"TWEET_CONTENT_TYPES not set, using default: {content_types}")
+            
         # Adjust weighting? e.g., more price tweets
         # content_types = ['price', 'price', 'quote', 'joke'] 
         chosen_type = random.choice(content_types)

@@ -16,6 +16,10 @@ try:
 except ImportError:
     PSYCOPG2_AVAILABLE = False
 
+# Default configuration value
+DEFAULT_DUPLICATE_POST_CHECK_MINUTES = 5
+DEFAULT_CONTENT_REUSE_DAYS = 7 # Add default for content reuse
+
 class Database:
     def __init__(self, db_path: str = "btcbuzzbot.db"):
         """Initialize database connection - supports both SQLite and PostgreSQL"""
@@ -355,22 +359,24 @@ class Database:
     
     async def get_random_content(self, collection_name: str) -> Optional[Dict[str, Any]]:
         """Get random content from either quotes or jokes table"""
+        # Get reuse interval from env var or use default
+        reuse_days = int(os.environ.get('CONTENT_REUSE_DAYS', DEFAULT_CONTENT_REUSE_DAYS))
+        
         try:
             if self.is_postgres:
                 # PostgreSQL implementation
                 conn = self._get_postgres_connection()
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 
-                # Get content that wasn't used in the last 7 days or was used least
-                cursor.execute(
-                    f"""
+                # Get content that wasn't used in the last X days or was used least
+                sql_query = f"""
                     SELECT * FROM {collection_name} 
                     WHERE last_used IS NULL 
-                    OR last_used < NOW() - INTERVAL '7 days'
+                    OR last_used < NOW() - INTERVAL '%s days'
                     ORDER BY used_count ASC
                     LIMIT 10
                     """
-                )
+                cursor.execute(sql_query, (reuse_days,))
                 rows = cursor.fetchall()
                 
                 if not rows:
@@ -400,20 +406,19 @@ class Database:
                 conn.close()
                 return None
             else:
-                # SQLite implementation (unchanged)
+                # SQLite implementation
                 async with aiosqlite.connect(self.db_path) as db:
                     db.row_factory = aiosqlite.Row
                     
-                    # Get content that wasn't used in the last 7 days or was used least
-                    async with db.execute(
-                        f"""
+                    # Get content that wasn't used in the last X days or was used least
+                    sql_query = f"""
                         SELECT * FROM {collection_name} 
                         WHERE last_used IS NULL 
-                        OR datetime(last_used) < datetime('now', '-7 days')
+                        OR datetime(last_used) < datetime('now', ? || ' days')
                         ORDER BY used_count ASC
                         LIMIT 10
                         """
-                    ) as cursor:
+                    async with db.execute(sql_query, (f"-{reuse_days}",)) as cursor:
                         rows = await cursor.fetchall()
                         
                         if not rows:
@@ -555,8 +560,15 @@ class Database:
             print(f"Error counting records in {table_name}: {e}")
             return 0
             
-    async def has_posted_recently(self, minutes: int = 5) -> bool:
-        """Check if a post was made within the last X minutes"""
+    async def has_posted_recently(self, minutes: Optional[int] = None) -> bool:
+        """Check if a post was made within the last X minutes."""
+        if minutes is None:
+            # Read from environment variable or use default
+            check_minutes = int(os.environ.get('DUPLICATE_POST_CHECK_MINUTES', DEFAULT_DUPLICATE_POST_CHECK_MINUTES))
+        else:
+            # Use the value passed as argument (e.g., for testing)
+            check_minutes = minutes
+            
         try:
             if self.is_postgres:
                 # PostgreSQL implementation
@@ -564,7 +576,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT 1 FROM posts WHERE timestamp > NOW() - INTERVAL '%s minutes' LIMIT 1",
-                    (minutes,)
+                    (check_minutes,) # Use the determined check_minutes
                 )
                 result = cursor.fetchone()
                 cursor.close()
@@ -575,7 +587,7 @@ class Database:
                 async with aiosqlite.connect(self.db_path) as db:
                     async with db.execute(
                         "SELECT 1 FROM posts WHERE datetime(timestamp) > datetime('now', ? || ' minutes') LIMIT 1",
-                        (f"-{minutes}",)
+                        (f"-{check_minutes}",) # Use the determined check_minutes
                     ) as cursor:
                         row = await cursor.fetchone()
                         return row is not None

@@ -22,14 +22,6 @@ except ImportError:
     REQUESTS_AVAILABLE = False
     print("Warning: requests module not available - external API functionality will be limited")
 
-# LLM Integration - Import API module
-try:
-    from src.llm_api import register_llm_api
-    OLLAMA_AVAILABLE = True
-except ImportError:
-    OLLAMA_AVAILABLE = False
-    print("Warning: Ollama LLM API import failed - LLM functionality will be disabled")
-
 # Import load_dotenv from dotenv
 from dotenv import load_dotenv
 
@@ -692,52 +684,6 @@ def admin_panel():
                            schedule=schedule_config # Pass schedule config to the template
                            )
 
-@app.route('/admin/llm')
-@limiter.limit("30 per minute")
-def llm_admin():
-    """LLM Admin panel for managing Ollama integration"""
-    # Check if Ollama LLM API is available
-    if not app.config.get('OLLAMA_ENABLED', False):
-        return render_template('llm_admin.html', 
-                              title='LLM Admin - BTCBuzzBot',
-                              error_message="Ollama LLM integration is not available",
-                              llm_enabled=False)
-    
-    # Get LLM status if available
-    try:
-        # Import directly here in case the global import failed
-        from src.llm_api import client, content_generator, prompt_manager, ensure_clients
-        
-        # Ensure clients are initialized
-        if not ensure_clients():
-            return render_template('llm_admin.html', 
-                                 title='LLM Admin - BTCBuzzBot',
-                                 error_message="Failed to initialize LLM clients",
-                                 llm_enabled=False)
-        
-        # Get available models
-        models = client.get_available_models()
-        current_model = client.model
-        
-        # Get templates
-        templates = prompt_manager.list_templates()
-        
-        # Get basic stats
-        stats = get_basic_stats()
-        
-        return render_template('llm_admin.html',
-                              title='LLM Admin - BTCBuzzBot',
-                              llm_enabled=True,
-                              current_model=current_model,
-                              models=models,
-                              templates=templates,
-                              stats=stats)
-    except Exception as e:
-        return render_template('llm_admin.html', 
-                              title='LLM Admin - BTCBuzzBot',
-                              error_message=f"Error accessing LLM functionality: {str(e)}",
-                              llm_enabled=False)
-
 @app.route('/control_bot/<action>', methods=['GET', 'POST'])
 def control_bot(action):
     """
@@ -1037,18 +983,6 @@ def ratelimit_handler(e):
 # Initialize the database on startup
 with app.app_context():
     init_db()
-
-# Register LLM API blueprint if available
-if OLLAMA_AVAILABLE:
-    try:
-        register_llm_api(app)
-        print("Ollama LLM API successfully registered")
-        app.config['OLLAMA_ENABLED'] = True
-    except Exception as e:
-        print(f"Failed to register Ollama LLM API: {str(e)}")
-        app.config['OLLAMA_ENABLED'] = False
-else:
-    app.config['OLLAMA_ENABLED'] = False
 
 if __name__ == '__main__':
     app.run(debug=True) 

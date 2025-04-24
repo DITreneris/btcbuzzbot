@@ -16,6 +16,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger('btcbuzzbot.tweet_handler')
 
+# --- Configuration Defaults ---
+DEFAULT_PRICE_FETCH_MAX_RETRIES = 3
+DEFAULT_TWEET_HASHTAGS = "#Bitcoin #Crypto"
+DEFAULT_MAX_TWEET_LENGTH = 280
+# --- End Configuration Defaults ---
+
 # Flag to track if TwitterClient is available
 TWITTER_CLIENT_AVAILABLE = False
 TWEEPY_AVAILABLE = False
@@ -124,8 +130,9 @@ class TweetHandler:
                 return {"success": False, "error": "PriceFetcher not initialized"}
 
             try:
-                # Use the correct argument name: max_retries
-                price_data = await self.price_fetcher.get_btc_price_with_retry(max_retries=3) # Correct argument name
+                # Use configured max_retries
+                price_fetch_retries = int(os.environ.get('PRICE_FETCH_MAX_RETRIES', DEFAULT_PRICE_FETCH_MAX_RETRIES))
+                price_data = await self.price_fetcher.get_btc_price_with_retry(max_retries=price_fetch_retries)
             except Exception as price_err:
                 error_msg = f"Could not fetch BTC price: {str(price_err)}"
                 logger.error(f"TweetHandler: {error_msg}", exc_info=True)
@@ -149,9 +156,10 @@ class TweetHandler:
 
             # --- Duplicate Check ---
             logger.debug("Checking for recent duplicate posts...")
-            is_duplicate = await self.db.has_posted_recently(minutes=5)
+            # Call has_posted_recently without argument to use configured env var
+            is_duplicate = await self.db.has_posted_recently()
             if is_duplicate:
-                logger.warning("Skipping tweet: A similar post was found within the last 5 minutes.")
+                logger.warning("Skipping tweet: A similar post was found within the configured duplicate check interval.")
                 return {'success': False, 'error': 'Skipped: Recent post detected'}
             logger.debug("No recent duplicate post found.")
 
@@ -195,34 +203,31 @@ class TweetHandler:
     def _format_tweet(self, price: float, price_change: float, quote_or_joke_text: Optional[str], content_type: str) -> str:
         """Helper function to format the tweet text."""
         emoji = "📈" if price_change >= 0 else "📉"
-        # Start with the core price info
         tweet = f"BTC: ${price:,.2f} | 24h: {price_change:+.2f}% {emoji}"
 
-        # Add quote or joke if provided and type matches
         if quote_or_joke_text and content_type in ['quote', 'joke']:
             tweet += f"\n\n{quote_or_joke_text}"
 
-        # Add standard hashtags
-        tweet += "\n\n#Bitcoin #Crypto"
-        # Consider adding #BTC hashtag as well
+        # Add standard hashtags from config
+        hashtags = os.environ.get('DEFAULT_TWEET_HASHTAGS', DEFAULT_TWEET_HASHTAGS)
+        if hashtags:
+             tweet += f"\n\n{hashtags}"
 
-        # Ensure tweet length is within limits (TwitterClient might handle this too)
-        MAX_TWEET_LENGTH = 280
-        if len(tweet) > MAX_TWEET_LENGTH:
-            logger.warning(f"Tweet exceeds {MAX_TWEET_LENGTH} characters, attempting to truncate...")
-            # Simple truncation - could be smarter
-            chars_to_remove = len(tweet) - MAX_TWEET_LENGTH + 3 # Add 3 for ellipsis
+        # Ensure tweet length is within limits
+        max_length = int(os.environ.get('MAX_TWEET_LENGTH', DEFAULT_MAX_TWEET_LENGTH))
+        if len(tweet) > max_length:
+            logger.warning(f"Tweet exceeds {max_length} characters, attempting to truncate...")
+            chars_to_remove = len(tweet) - max_length + 3 # Add 3 for ellipsis
             if quote_or_joke_text:
-                # Try truncating the quote/joke first
                 truncated_content = quote_or_joke_text[:-chars_to_remove] + "..."
-                # Re-format with truncated content
-                tweet = f"BTC: ${price:,.2f} | 24h: {price_change:+.2f}% {emoji}\n\n{truncated_content}\n\n#Bitcoin #Crypto"
+                # Re-format with truncated content and hashtags
+                tweet = f"BTC: ${price:,.2f} | 24h: {price_change:+.2f}% {emoji}\n\n{truncated_content}"
+                if hashtags: tweet += f"\n\n{hashtags}"
             else:
-                 # If only price info, something is very wrong with length - but truncate anyway
-                 tweet = tweet[:MAX_TWEET_LENGTH - 3] + "..."
+                 tweet = tweet[:max_length - 3] + "..."
+                 
             logger.warning(f"Truncated tweet: {tweet}")
-            # Recheck length after truncation attempt
-            if len(tweet) > MAX_TWEET_LENGTH:
+            if len(tweet) > max_length:
                  logger.error("Tweet still too long after truncation attempt! Posting may fail.")
 
         return tweet

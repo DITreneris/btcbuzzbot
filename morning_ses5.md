@@ -112,8 +112,8 @@ Further investigation revealed deeper issues related to database interactions an
 With the core tweet posting mechanism stable, address remaining pending items:
 
 1.  **Admin Panel Display:** 
-    *   Investigate and fix the "Next scheduled run: Not scheduled" display mismatch.
-    *   Update `admin.html` to display sentiment/summary from `news_tweets`.
+    *   Investigate and fix the "Next scheduled run: Not scheduled" display mismatch. **Result:** Removed inaccurate display section.
+    *   Update `admin.html` to display sentiment/summary from `news_tweets`. **Result:** Fixed data fetching, column mapping, and template display. Sentiment/Summary now visible.
 2.  **Rate Limiting Monitoring:**
     *   Monitor news fetcher logs over the next 12-24 hours to see if the rate limit mitigation was effective.
     *   Monitor Groq usage/limits if LLM analysis remains active and important.

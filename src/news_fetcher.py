@@ -32,6 +32,9 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
+# Default configuration
+DEFAULT_NEWS_FETCH_MAX_RESULTS = 10
+
 class NewsFetcher:
     def __init__(self, db_instance: Optional[Database] = None):
         self.db = db_instance
@@ -71,20 +74,27 @@ class NewsFetcher:
             logger.error(f"Failed to authenticate Twitter client: {e}", exc_info=True)
             return None
 
-    async def fetch_tweets(self, query: Optional[str] = None, max_results: int = 10) -> List[Dict[str, Any]]:
+    async def fetch_tweets(self, query: Optional[str] = None, max_results: Optional[int] = None) -> List[Dict[str, Any]]:
         """Fetches recent tweets based on a query using Twitter API v2 search."""
         if not self.initialized or not self.twitter_client:
             logger.error("NewsFetcher not initialized or Twitter client unavailable.")
             return []
 
+        # Determine max_results: use argument if provided, else env var, else default
+        if max_results is None:
+            fetch_limit = int(os.environ.get('NEWS_FETCH_MAX_RESULTS', DEFAULT_NEWS_FETCH_MAX_RESULTS))
+        else:
+            fetch_limit = max_results
+            
         # Removed $BTC as it causes 400 error on standard v2 endpoint
         default_query = "#Bitcoin -is:retweet"
         # Get search query directly from env var or use default
         search_query = os.environ.get('TWITTER_SEARCH_QUERY', default_query)
-        # Ensure max_results is within Twitter API limits (5-100 for recent search, set to 5)
-        safe_max_results = max(5, min(max_results, 5))
+        # Ensure max_results is within Twitter API limits (currently 5-100)
+        # We use the configured fetch_limit here.
+        safe_max_results = max(5, min(fetch_limit, 100)) # Ensure it's at least 5 and at most 100
 
-        logger.info(f"Fetching up to {safe_max_results} tweets for query: '{search_query}'")
+        logger.info(f"Fetching up to {safe_max_results} tweets (limit: {fetch_limit}) for query: '{search_query}'")
 
         processed_tweets = []
         try:
