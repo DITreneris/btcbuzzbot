@@ -104,4 +104,20 @@ Further investigation revealed deeper issues related to database interactions an
     *   Investigate why the "Price stored in DB" log message didn't appear in `TweetHandler` logs. **Result:** Log level was `DEBUG`, which is hidden in production. No issue.
     *   **(Review all pending items from Section 3)** Rate limiting (Groq/Twitter), news fetch/analysis confirmation, admin panel display cleanup, configuration review (env vars), LLM warning. These can be addressed once core tweeting is confirmed stable.
         *   **Twitter Rate Limit (News Fetch):** Hit persistent rate limits on `search_recent_tweets` even with 6hr interval. **Mitigation Attempt (Apr 24):** Reduced `max_results` to 5 in `NewsFetcher.fetch_tweets` and increased fetch interval to 12 hours (720 mins) in `scheduler_engine.py`.
-        *   **Groq Rate Limit:** Still needs monitoring/adjustment if LLM analysis is critical. 
+        *   **Groq Rate Limit:** Still needs monitoring/adjustment if LLM analysis is critical.
+        *   **Core Tweet Posting:** **SUCCESS (Apr 24, 08:00 UTC)**. Worker stable, 08:00 job ran successfully, selected 'joke' type randomly, posted to Twitter, and logged to DB without errors. Fix for `posts.timestamp` type confirmed.
+
+## 7. Next Steps (Post-Core Functionality Verification)
+
+With the core tweet posting mechanism stable, address remaining pending items:
+
+1.  **Admin Panel Display:** 
+    *   Investigate and fix the "Next scheduled run: Not scheduled" display mismatch.
+    *   Update `admin.html` to display sentiment/summary from `news_tweets`.
+2.  **Rate Limiting Monitoring:**
+    *   Monitor news fetcher logs over the next 12-24 hours to see if the rate limit mitigation was effective.
+    *   Monitor Groq usage/limits if LLM analysis remains active and important.
+3.  **Configuration Review:**
+    *   Move any remaining hardcoded config values (intervals, keywords) to environment variables.
+4.  **Technical Debt:**
+    *   Fix the Flask `before_first_request` deprecation warning in `src/llm_api.py` if LLM features are actively used. 

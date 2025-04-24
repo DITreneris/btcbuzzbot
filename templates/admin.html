@@ -60,11 +60,6 @@
                                 </span>
                             </div>
                             
-                            <div class="mb-3">
-                                <h6 class="text-accent"><i class="fas fa-calendar-alt me-2"></i> Next scheduled run:</h6>
-                                <p class="text-light">{% if bot_status.next_scheduled_run %}{{ bot_status.next_scheduled_run }}{% else %}Not scheduled{% endif %}</p>
-                            </div>
-                            
                             <div>
                                 <h6 class="text-accent"><i class="fas fa-comment-alt me-2"></i> Status message:</h6>
                                 <p class="mb-0 text-light">{{ bot_status.message }}</p>
@@ -202,7 +197,8 @@
                                     <th>Published</th>
                                     <th>Author</th>
                                     <th>Text</th>
-                                    <th>Score</th> {# Optional score from analyzer #}
+                                    <th>Sentiment</th>
+                                    <th>Summary</th>
                                     <th>Link</th>
                                 </tr>
                             </thead>
@@ -212,7 +208,8 @@
                                         <td class="text-nowrap">{{ news_item.published_at }}</td>
                                         <td>{{ news_item.author }}</td>
                                         <td>{{ news_item.tweet_text }}</td>
-                                        <td class="text-nowrap">{{ "{:.2f}".format(news_item.news_score) if news_item.news_score is not none else 'N/A' }}</td>
+                                        <td><span class="badge bg-secondary">{{ news_item.sentiment_label | default('N/A') }}</span></td>
+                                        <td>{{ news_item.summary | default('N/A') }}</td>
                                         <td class="text-nowrap">
                                             <a href="{{ news_item.tweet_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info">
                                                 <i class="fas fa-external-link-alt"></i> View

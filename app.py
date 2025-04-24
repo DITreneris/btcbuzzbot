@@ -209,14 +209,13 @@ def get_potential_news(limit=10):
         with get_db_connection() as conn:
             cursor_factory = RealDictCursor if IS_POSTGRES else None
             cursor = conn.cursor(cursor_factory=cursor_factory)
+            # Fetch recent tweets regardless of is_news status, order by fetched time
             query = """
                 SELECT * FROM news_tweets 
-                WHERE is_news = True 
                 ORDER BY fetched_at DESC 
                 LIMIT %s
             """ if IS_POSTGRES else """
                 SELECT * FROM news_tweets 
-                WHERE is_news = 1 -- SQLite uses 1 for True
                 ORDER BY fetched_at DESC 
                 LIMIT ?
             """
