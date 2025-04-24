@@ -208,7 +208,7 @@
                                         <td class="text-nowrap">{{ news_item.published_at }}</td>
                                         <td>{{ news_item.author }}</td>
                                         <td>{{ news_item.tweet_text }}</td>
-                                        <td><span class="badge bg-secondary">{{ news_item.sentiment_label | default('N/A') }}</span></td>
+                                        <td><span class="badge bg-secondary">{{ news_item.sentiment | default('N/A') }}</span></td>
                                         <td>{{ news_item.summary | default('N/A') }}</td>
                                         <td class="text-nowrap">
                                             <a href="{{ news_item.tweet_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info">

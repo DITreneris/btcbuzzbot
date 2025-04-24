@@ -774,11 +774,12 @@ class Database:
 
     async def update_news_tweet_analysis(self, original_tweet_id: str, analysis_results: Dict[str, Any]):
         """Updates a news tweet record with analysis results."""
-        # Fields to potentially update
+        # Fields to potentially update from analysis_results dictionary
         fields_to_update = {
             'is_news': analysis_results.get('is_news'),
             'news_score': analysis_results.get('news_score'),
-            'sentiment': analysis_results.get('sentiment'),
+            # Store the generated label in the 'sentiment' column
+            'sentiment': analysis_results.get('sentiment_label'), 
             'summary': analysis_results.get('summary')
         }
         
