@@ -2,343 +2,224 @@
 
 <div align="center">
   <img src="static/img/favicon.png" alt="BTCBuzzBot Logo" width="120" height="120">
-  <h3>A Bitcoin Price Twitter Bot with Personality</h3>
+  <h3>A Bitcoin Price & News Twitter Bot</h3>
+  <p>Monitoring Bitcoin trends and posting updates with insights and personality!</p>
+  <p><a href="https://twitter.com/BTCBuzzBot" target="_blank"><strong>Follow the Bot on Twitter: @BTCBuzzBot</strong></a></p> 
 </div>
 
-[![Python Version](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3112/)
-[![Flask](https://img.shields.io/badge/Flask-3.0.2-lightgrey)](https://flask.palletsprojects.com/)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/TStaniulis/BTCBuzzBot)
+[![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-3112/)
+[![Flask](https://img.shields.io/badge/Flask-3.x-lightgrey)](https://flask.palletsprojects.com/)
 [![Twitter API](https://img.shields.io/badge/Twitter%20API-v2-1DA1F2)](https://developer.twitter.com/en/docs/twitter-api)
-[![CoinGecko API](https://img.shields.io/badge/CoinGecko-API-yellow)](https://www.coingecko.com/en/api)
+[![Groq API](https://img.shields.io/badge/Groq-LLM%20API-green)](https://groq.com/)
 [![Heroku](https://img.shields.io/badge/Heroku-Deployed-purple)](https://btcbuzzbot-7c02c485f88e.herokuapp.com/)
+
+---
+
+**Table of Contents**
+
+- [📊 Overview](#-overview)
+- [✨ Features](#-features)
+- [🛠️ Technology Stack](#️-technology-stack)
+- [📋 Requirements](#-requirements)
+- [🚀 Setup & Installation](#-setup--installation)
+  - [Local Development (Primarily for Web UI Testing)](#local-development-primarily-for-web-ui-testing)
+  - [Heroku Deployment (Recommended)](#heroku-deployment-recommended)
+- [⚙️ Environment Variables](#️-environment-variables)
+- [🖥️ Web Interface](#️-web-interface)
+- [🔄 Core Logic](#-core-logic)
+- [🔧 Troubleshooting](#-troubleshooting)
+- [⚠️ Disclaimer](#️-disclaimer)
+- [📄 License](#-license)
+- [📧 Contact](#-contact)
+
+---
 
 ## 📊 Overview
 
-**BTCBuzzBot** is an automated Twitter bot that posts real-time Bitcoin price updates combined with motivational quotes or jokes to engage the crypto community. The application includes a full web dashboard for monitoring bot activity, viewing analytics, and controlling operations.
+**BTCBuzzBot** is an automated Twitter bot designed to:
+
+1.  Post real-time Bitcoin price updates combined with motivational quotes or jokes.
+2.  Fetch recent Bitcoin-related tweets from the Twitter Search API.
+3.  Analyze fetched tweets using the Groq LLM API (currently Llama 3 8B) to determine sentiment, news significance, and generate summaries.
+4.  Provide a web dashboard for monitoring bot activity, viewing analyzed news, and controlling operations.
 
 ## ✨ Features
 
-- **Automated Bitcoin Price Updates**: Fetches real-time Bitcoin prices from CoinGecko API
-- **Content Variety**: Rotates between price updates, motivational quotes, and crypto jokes
-- **Twitter Integration**: Posts updates to Twitter via the Twitter API v2
-- **Scheduled Operations**: Configurable posting schedule (defaults to 4 times daily)
-- **Admin Dashboard**: Web interface for monitoring and controlling bot activity
-- **Analytics**: View engagement statistics and price history charts
-- **Mobile-Responsive UI**: Modern dark-themed interface built with Bootstrap 5
-- **Robust Error Handling**: Graceful fallbacks for network and API issues
-- **Flexible Database Schema**: Adapts to different database setups automatically
-- **Export Capabilities**: CSV exports of all data with advanced filtering
+- **Automated Price Tweets**: Fetches real-time Bitcoin prices (via CoinGecko) and posts scheduled updates including 24h price change.
+- **Content Variety**: Rotates scheduled posts between price updates, motivational quotes, and crypto jokes fetched from an internal database.
+- **News Fetching & Analysis**: Periodically fetches recent Bitcoin-related tweets using the Twitter Search API v2.
+- **LLM Integration (Groq)**: Analyzes fetched news tweets for:
+    - Sentiment (Positive/Negative/Neutral)
+    - News Significance (Low/Medium/High)
+    - Concise Summary
+- **Twitter Integration**: Posts updates to Twitter via the Tweepy library using Twitter API v2.
+- **Scheduled Operations**: Uses APScheduler running in a separate Heroku worker dyno. Posting schedule is configurable via the Admin dashboard.
+- **Admin Dashboard**: Web interface (Flask) for monitoring bot status, viewing recent posts, analyzed news tweets, and updating the posting schedule.
+- **Database**: Uses PostgreSQL on Heroku (or SQLite locally) to store prices, quotes, jokes, posts, fetched news tweets, analysis results, and configuration.
+- **Configuration via Environment**: Key settings managed via environment variables for easy deployment.
+- **Mobile-Responsive UI**: Dark-themed interface built with Bootstrap 5.
 
 ## 🛠️ Technology Stack
 
-- **Backend**: Python, Flask
-- **Database**: SQLite (local) / PostgreSQL (production)
-- **APIs**: Twitter API v2, CoinGecko API
-- **Frontend**: HTML, CSS, JavaScript, Bootstrap 5, Chart.js
-- **Deployment**: Heroku
+- **Backend**: Python 3.11+, Flask, APScheduler
+- **Database**: PostgreSQL (production via Heroku Postgres), SQLite (local dev)
+- **Libraries**: Tweepy (Twitter), Requests (HTTP), Groq (LLM), Psycopg2 (Postgres), aiosqlite (Async SQLite), VADER Sentiment (basic sentiment fallback), python-dotenv
+- **APIs**: Twitter API v2 (Search & Post), Groq API, CoinGecko API (via `price_fetcher`)
+- **Frontend**: HTML, CSS, JavaScript, Bootstrap 5
+- **Deployment**: Heroku (web + worker dynos)
 
 ## 📋 Requirements
 
 - Python 3.11+
-- Twitter Developer Account with API access
-- CoinGecko API key (optional)
-- Heroku account (for deployment)
+- Twitter Developer Account with Elevated access (for API v2 Search) & App Keys/Tokens
+- Groq API Key
+- Heroku account with Heroku CLI installed (for deployment)
+- PostgreSQL Add-on on Heroku (automatically provides `DATABASE_URL`)
 
 ## 🚀 Setup & Installation
 
-### Local Development
+### Local Development (Primarily for Web UI Testing)
 
-1. **Clone the repository**
-```bash
-git clone https://github.com/yourusername/btcbuzzbot.git
-cd btcbuzzbot
-```
+*Note: Running the full scheduler and tweet posting locally requires careful environment setup matching production.*
 
-2. **Set up a virtual environment**
-```bash
-python -m venv venv
-# On Windows
-venv\Scripts\activate
-# On macOS/Linux
-source venv/bin/activate
-```
+1.  **Clone the repository**
+    ```bash
+    git clone https://github.com/yourusername/btcbuzzbot.git # Replace with your repo URL
+    cd btcbuzzbot
+    ```
 
-3. **Install dependencies**
-```bash
-pip install -r requirements.txt
-```
+2.  **Set up a virtual environment**
+    ```bash
+    python -m venv venv
+    # On Windows: venv\Scripts\activate
+    # On macOS/Linux: source venv/bin/activate
+    ```
 
-4. **Configure environment variables**
-   Create a `.env` file in the root directory with the following variables:
-   ```
-   # Twitter API Credentials
-   TWITTER_API_KEY=your_api_key
-   TWITTER_API_SECRET=your_api_secret
-   TWITTER_ACCESS_TOKEN=your_access_token
-   TWITTER_ACCESS_TOKEN_SECRET=your_access_secret
-   
-   # CoinGecko API
-   COINGECKO_API_KEY=your_coingecko_api_key
-   
-   # Bot Configuration
-   POST_TIMES=08:00,12:00,16:00,20:00
-   TIMEZONE=UTC
-   
-   # Flask Configuration
-   FLASK_APP=app.py
-   FLASK_ENV=development
-   SECRET_KEY=your_secret_key
-   
-   # Database Configuration
-   SQLITE_DB_PATH=btcbuzzbot.db
-   ```
+3.  **Install dependencies**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-5. **Initialize the database**
-```bash
-python app.py
-```
+4.  **Configure environment variables**
+    Create a `.env` file in the root directory. See the **Environment Variables** section below for required keys. For local testing, you might only need `FLASK_APP`, `FLASK_ENV`, `SECRET_KEY`, and potentially `DATABASE_URL` pointing to a local Postgres instance or leave it blank to use the default `btcbuzzbot.db` SQLite file.
 
-6. **Run the application**
-```bash
-flask run
-```
+5.  **Run the Web Application**
+    ```bash
+    flask run
+    ```
+    This will start the Flask web server. Access the dashboard at `http://127.0.0.1:5000` (or the specified port).
 
-### Heroku Deployment
+### Heroku Deployment (Recommended)
 
-1. **Create a Heroku app**
-```bash
-heroku create btcbuzzbot-yourname
-```
+1.  **Login to Heroku CLI**
+    ```bash
+    heroku login
+    ```
 
-2. **Configure Heroku environment variables**
-```bash
-heroku config:set TWITTER_API_KEY=your_api_key
-heroku config:set TWITTER_API_SECRET=your_api_secret
-heroku config:set TWITTER_ACCESS_TOKEN=your_access_token
-heroku config:set TWITTER_ACCESS_TOKEN_SECRET=your_access_secret
-heroku config:set COINGECKO_API_KEY=your_coingecko_api_key
-heroku config:set POST_TIMES=08:00,12:00,16:00,20:00
-heroku config:set TIMEZONE=UTC
-heroku config:set SECRET_KEY=your_secret_key
-```
+2.  **Create a Heroku app**
+    ```bash
+    heroku create your-app-name # Replace with your desired app name
+    ```
 
-3. **Deploy to Heroku**
-```bash
-git push heroku master
-```
+3.  **Add PostgreSQL Add-on**
+    ```bash
+    heroku addons:create heroku-postgresql:basic # Or other plan
+    # This automatically sets the DATABASE_URL config var.
+    ```
+
+4.  **Configure Heroku Environment Variables**
+    Use the Heroku Dashboard (Settings -> Config Vars) or the CLI (`heroku config:set KEY=VALUE`) to set **all** the required variables listed in the **Environment Variables** section below.
+
+5.  **Deploy to Heroku**
+    ```bash
+    git push heroku your_local_branch:main # e.g., git push heroku master:main
+    ```
+    Heroku will build the app using `requirements.txt` and run it based on the `Procfile` (which defines the `web` and `worker` processes).
+
+6.  **Scale Dynos**
+    Ensure you have both `web` (for the dashboard) and `worker` (for the scheduler) dynos running. The `Procfile` defines these process types.
+    ```bash
+    heroku ps:scale web=1 worker=1
+    ```
+
+## ⚙️ Environment Variables
+
+These variables are crucial for configuring the application, especially on Heroku.
+
+**Required:**
+
+-   `DATABASE_URL`: Connection string for the PostgreSQL database (automatically set by Heroku Postgres add-on).
+-   `TWITTER_API_KEY`: Your Twitter App API Key (for authentication).
+-   `TWITTER_API_SECRET`: Your Twitter App API Secret Key (for authentication).
+-   `TWITTER_ACCESS_TOKEN`: Your Twitter App Access Token (for posting tweets).
+-   `TWITTER_ACCESS_TOKEN_SECRET`: Your Twitter App Access Token Secret (for posting tweets).
+-   `TWITTER_BEARER_TOKEN`: Your Twitter App Bearer Token (used for Twitter API v2 Search endpoint).
+-   `GROQ_API_KEY`: Your Groq Cloud API Key (for LLM analysis).
+-   `SECRET_KEY`: A random secret string for Flask session security (important for production).
+
+**Optional (with Defaults):**
+
+-   `GROQ_MODEL`: Groq model to use (default: `llama3-8b-8192`).
+-   `LLM_ANALYZE_TEMP`: Temperature for LLM analysis (default: `0.2`).
+-   `LLM_ANALYZE_MAX_TOKENS`: Max tokens for LLM analysis response (default: `150`).
+-   `NEWS_FETCH_INTERVAL_MINUTES`: How often to fetch news (default: `720`).
+-   `NEWS_FETCH_MAX_RESULTS`: Max tweets per fetch (default: `5`).
+-   `NEWS_ANALYSIS_INTERVAL_MINUTES`: How often to run news analysis (default: `30`).
+-   `NEWS_ANALYSIS_BATCH_SIZE`: Max tweets to analyze per cycle (default: `30`).
+-   `TWEET_CONTENT_TYPES`: Comma-separated types (default: `price,quote,joke`).
+-   `TWEET_CONTENT_WEIGHTS`: Comma-separated weights corresponding to types (default: `0.4,0.3,0.3`).
+-   `DUPLICATE_POST_CHECK_MINUTES`: Interval to check for duplicate posts (default: `5`).
+-   `CONTENT_REUSE_DAYS`: Minimum days before reusing quotes/jokes (default: `7`).
+-   `PRICE_FETCH_MAX_RETRIES`: Retries for fetching BTC price (default: `3`).
+-   `DEFAULT_TWEET_HASHTAGS`: Default hashtags added to tweets (default: `#Bitcoin #Crypto`).
+-   `MAX_TWEET_LENGTH`: Max characters for tweets (default: `280`).
+-   `SCHEDULER_GRACE_TIME_SECONDS`: APScheduler job grace time (default: `120`).
+-   `LOG_LEVEL`: Log level for the application (e.g., `INFO`, `DEBUG`, default: `INFO`).
 
 ## 🖥️ Web Interface
 
-The application includes a web interface with the following features:
+The application includes a web interface accessible when deployed:
 
-- **Home Page**: View current Bitcoin price, bot statistics, and recent tweets
-- **Tweet History**: Browse all tweets with filtering and pagination
-- **Admin Panel**: Control bot operation, view error logs, and manage content
+- **Home Page (`/`)**: View current Bitcoin price, basic bot statistics, and recent posts.
+- **Tweet History (`/posts`)**: Browse logged posts.
+- **Admin Panel (`/admin`)**: View basic stats, recent posts, analyzed news tweets (with sentiment/summary), and update the tweet schedule.
+- **Health Check (`/health`)**: Simple health check endpoint.
 
-### Dashboard URLs
+## 🔄 Core Logic
 
-- Home: `/`
-- Tweet History: `/posts`
-- Admin Panel: `/admin`
-- Health Check: `/health`
+- **Scheduler (`worker` dyno)**: Runs defined jobs using APScheduler.
+    - `fetch_news_tweets`: Fetches recent tweets via `NewsFetcher`.
+    - `analyze_news_tweets`: Analyzes fetched tweets using `NewsAnalyzer` (calls Groq API).
+    - `scheduled_tweet_X`: Posts tweets (price/quote/joke) at scheduled times using `TweetHandler`.
+    - `reschedule_tweet_jobs`: Periodically updates the scheduler based on the schedule stored in the database (editable via Admin panel).
+- **Web App (`web` dyno)**: Serves the Flask dashboard, handles API requests, and allows schedule updates.
+- **Database**: Central storage for all operational data and configuration.
 
-## 🔄 API Endpoints
-
-The application provides several API endpoints:
-
-- **GET /api/posts**: Retrieve recent posts with pagination and filtering
-- **GET /api/stats**: Get bot statistics and Bitcoin price history
-- **GET /api/price/refresh**: Manually refresh Bitcoin price data
-- **GET /api/price/history**: Get Bitcoin price history for charting
-
-## 🔧 Utility Tools
-
-BTCBuzzBot includes several utility tools for monitoring, analysis, and management:
-
-### Core Tools
-
-- **direct_tweet_fixed.py**: Main script for posting tweets with proper database logging
-- **post_tweet_now.py**: Manually trigger a tweet post for testing or one-off posts
-
-### Database Tools
-
-- **list_tables.py**: Show all tables in the database
-- **view_data.py**: Display detailed information about each table's structure and data
-- **fix_database.py**: Fix database structure issues and ensure schema compatibility
-
-### Reporting Tools
-
-- **generate_report.py**: Generate a summary report of the bot's activity with robust error handling
-- **export_data.py**: Export all database tables to CSV files with special character handling
-
-## 📊 Data Analysis
-
-### Viewing Database Structure
-
-```bash
-python list_tables.py
-```
-
-### Viewing Database Content
-
-```bash
-python view_data.py
-```
-
-### Generating Status Reports
-
-```bash
-python generate_report.py
-```
-
-### Exporting Data
-
-```bash
-python export_data.py
-```
-
-This will create CSV files in the `exports` directory with robust handling of special characters and date formats.
-
-## ⚙️ Configuration
-
-The system uses the following configuration sources:
-
-1. **Environment Variables**: Twitter API credentials and application settings
-2. **Database**: Scheduled posting times and content preferences
-
-### Required Python Modules
-
-- **Core Functionality**: sqlite3 (included in Python standard library)
-- **Twitter Posting**: tweepy (optional - fallback to simulation mode if unavailable)
-- **Price Fetching**: requests (optional - uses default values if unavailable)
-- **Environment Loading**: python-dotenv (optional - for loading .env files)
-- **Web Interface**: Flask and extensions
-
-## 🔄 Operational Modes
-
-- **Full Mode**: Posts to Twitter and updates the database
-- **Simulation Mode**: For environments without Twitter API access, simulates posting and updates database
-- **Scheduled Mode**: Runs on a schedule defined in the database
-- **Manual Mode**: Trigger posts manually via web interface or `post_tweet_now.py`
-
-## 🛠️ Troubleshooting
+## 🔧 Troubleshooting
 
 If you encounter issues:
 
-1. Check the bot status in the database using the reporting tool
-2. Verify that the database structure is correct with `view_data.py`
-3. Use `fix_database.py` to repair any schema issues
-4. Examine the logs in the web interface
+1.  **Check Heroku Logs:** The primary source for debugging.
+    ```bash
+    heroku logs --tail --app your-app-name
+    # Filter by dyno if needed
+    heroku logs --tail --app your-app-name --dyno worker
+    heroku logs --tail --app your-app-name --dyno web
+    ```
+2.  **Check Heroku App Status:** Ensure both `web` and `worker` dynos are running (`heroku ps --app your-app-name`).
+3.  **Verify Config Vars:** Double-check all required environment variables are set correctly in Heroku Dashboard -> Settings -> Config Vars.
+4.  **Check Database Connection:** Use `heroku pg:psql --app your-app-name` to connect and inspect tables if necessary.
+5.  **Review Code & Commits:** Check recent code changes if the issue started after a deployment.
 
 ## ⚠️ Disclaimer
 
-BTCBuzzBot is for informational purposes only. The content provided should not be construed as financial advice. Always do your own research before making investment decisions.
+BTCBuzzBot is for informational and entertainment purposes only. The content provided should not be construed as financial advice. Always do your own research before making investment decisions.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the `LICENSE` file for details.
 
 ## 📧 Contact
 
-For questions or support, please open an issue on this repository.
-
-# BTCBuzzBot Tools
-
-A collection of tools for the BTCBuzzBot Twitter bot that posts Bitcoin price updates.
-
-## Overview
-
-BTCBuzzBot is a Twitter bot that automatically posts Bitcoin price updates with motivational quotes or jokes. It stores data in an SQLite database and can operate in two modes:
-
-1. **Real Posting Mode**: Posts actual tweets to Twitter using the Twitter API
-2. **Simulation Mode**: Simulates tweets and logs them to the database without actually posting to Twitter
-
-## Available Tools
-
-### Core Tools
-
-- **direct_tweet_fixed.py**: Main script for posting tweets with proper database logging
-- **post_tweet_now.py**: Manually trigger a tweet post for testing or one-off posts
-
-### Database Tools
-
-- **list_tables.py**: Show all tables in the database
-- **view_data.py**: Display detailed information about each table's structure and data
-- **fix_database.py**: Fix database structure issues
-
-### Reporting Tools
-
-- **generate_report.py**: Generate a summary report of the bot's activity
-- **export_data.py**: Export all database tables to CSV files for external analysis
-
-## Usage Instructions
-
-### Viewing Database Structure
-
-```
-python list_tables.py
-```
-
-### Viewing Database Content
-
-```
-python view_data.py
-```
-
-### Manually Posting a Tweet
-
-```
-python post_tweet_now.py
-```
-
-### Generating a Status Report
-
-```
-python generate_report.py
-```
-
-### Exporting Data
-
-```
-python export_data.py
-```
-This will create CSV files in the `exports` directory.
-
-## Configuration
-
-The system uses the following configuration sources:
-
-1. **Environment Variables**: Twitter API credentials should be set as environment variables
-   - TWITTER_API_KEY
-   - TWITTER_API_SECRET
-   - TWITTER_ACCESS_TOKEN
-   - TWITTER_ACCESS_TOKEN_SECRET
-
-2. **Database Configuration**: Scheduled posting times are stored in the `scheduler_config` table
-
-## Required Python Modules
-
-- **Core Functionality**: sqlite3 (included in Python standard library)
-- **Twitter Posting**: tweepy (optional - only required for actual Twitter posting)
-- **Price Fetching**: requests (optional - only required for real-time price data)
-- **Environment Loading**: python-dotenv (optional - for loading .env files)
-
-## Automatic vs. Manual Operation
-
-- For automatic scheduled operation, use the scheduler: `python scheduler.py start`
-- For manual operation, use the post_tweet_now.py script
-
-## Troubleshooting
-
-If you encounter issues:
-
-1. Check the bot status in the database using the report tool
-2. Verify that the database structure is correct
-3. Ensure Twitter API credentials are properly set if using real posting mode
-4. Check for required Python modules
-
-## Data Exports
-
-The export_data.py script creates the following specialized reports:
-
-- **price_history_*.csv**: Price data with calculated changes
-- **post_activity_*.csv**: Tweet activity with additional metrics 
+For questions or support, please open an issue on this repository. 
