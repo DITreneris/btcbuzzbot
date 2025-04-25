@@ -672,8 +672,8 @@ def admin_panel():
     sentiment_by_day = defaultdict(lambda: {'sum': 0.0, 'count': 0})
     logger.info(f"Processing {len(potential_news_raw)} potential news items for analysis display.")
     # Use explicit datetime class/module references
-    now_utc = datetime.datetime.now(datetime.timezone.utc) # CORRECTED
-    cutoff_date = now_utc - datetime.timedelta(days=7) # CORRECTED
+    now_utc = datetime.datetime.now(datetime.timezone.utc) # Explicitly use datetime.datetime and datetime.timezone
+    cutoff_date = now_utc - datetime.timedelta(days=7) # Explicitly use datetime.timedelta
 
     for news_item in potential_news_raw:
         # Ensure news_item is mutable if it's not already a dict (it should be from RealDictCursor)
@@ -720,7 +720,7 @@ def admin_panel():
                     if isinstance(pub_date, str):
                         try:
                             # Use explicit datetime.datetime
-                            pub_date = datetime.datetime.fromisoformat(pub_date.replace('Z', '+00:00')) # CORRECTED
+                            pub_date = datetime.datetime.fromisoformat(pub_date.replace('Z', '+00:00')) # Explicitly use datetime.datetime
                         except ValueError:
                             logger.warning(f"Could not parse pub_date string: {news_item.get('published_at')} for tweet {news_item.get('id', 'N/A')}")
                             pub_date = None # Ignore if parse fails
@@ -733,7 +733,7 @@ def admin_panel():
                          if pub_date.tzinfo is None:
                               # Assume naive db timestamp is UTC if not PostgreSQL TIMESTAMPTZ
                               # Use explicit datetime.timezone
-                              pub_date = pub_date.replace(tzinfo=datetime.timezone.utc) # CORRECTED
+                              pub_date = pub_date.replace(tzinfo=datetime.timezone.utc) # Explicitly use datetime.timezone
                               
                          # Ensure comparison is valid (both offset-aware or both naive)
                          if now_utc.tzinfo is not None and pub_date.tzinfo is not None:
@@ -761,7 +761,7 @@ def admin_panel():
     # Iterate through the last 7 days to ensure all days are present
     for i in range(7):
         # Use explicit datetime.timedelta
-        day_obj = now_utc - datetime.timedelta(days=i) # CORRECTED
+        day_obj = now_utc - datetime.timedelta(days=i) # Explicitly use datetime.timedelta
         day_str = day_obj.strftime('%Y-%m-%d')
         if day_str in sentiment_by_day and sentiment_by_day[day_str]['count'] > 0:
             avg_score = sentiment_by_day[day_str]['sum'] / sentiment_by_day[day_str]['count']
