@@ -92,4 +92,25 @@ This plan provides a clear path forward, focusing on solidifying the current app
     *   Deployed this fix.
 *   **Current Status (End of Session):**
     *   The refactored news analysis code and the price change calculation fix have been deployed to Heroku.
-    *   **Next Action:** Monitor the next scheduled tweet job (16:00 UTC) via logs (`heroku logs --tail --app btcbuzzbot --dyno worker`) to verify the price change calculation is working correctly and the tweet displays the accurate percentage change. 
+    *   **Next Action:** Monitor the next scheduled tweet job (16:00 UTC) via logs (`heroku logs --tail --app btcbuzzbot --dyno worker`) to verify the price change calculation is working correctly and the tweet displays the accurate percentage change.
+
+## 6. Verification & Further Fixes (April 24th - Late Afternoon)
+
+*   **16:00 UTC Tweet Verification Failure:**
+    *   Monitoring logs during the `scheduled_tweet_1600` job revealed two errors:
+        1.  **Database Error:** `psycopg2.errors.UndefinedFunction: operator does not exist: text <= timestamp with time zone` occurred in `Database.get_price_from_approx_24h_ago` because the `prices.timestamp` column was incorrectly typed as `TEXT`.
+        2.  **Logging Error:** The subsequent `except` block in `get_price_from_approx_24h_ago` failed with `NameError: name 'logger' is not defined`.
+    *   **Result:** The price change calculation failed, defaulted to `0.0`, and the tweet was posted with `+0.00%`.
+*   **Corrective Actions Taken:**
+    1.  **Database Schema Fix:** Connected via `heroku pg:psql` and executed `ALTER TABLE prices ALTER COLUMN timestamp TYPE TIMESTAMP WITH TIME ZONE USING timestamp::timestamp with time zone;` to correct the data type.
+    2.  **Logging Fix:** Added `import logging` and `logger = logging.getLogger(__name__)` to `src/database.py`.
+    3.  **Deployment:** Committed (`Fix: Add logger to database.py`) and deployed these fixes to Heroku and pushed to GitHub.
+*   **Post-Fix Status:**
+    *   Worker dyno restarted successfully around 16:05 UTC after deployment.
+    *   Subsequent news analysis cycles (e.g., 15:14, 15:44 UTC) ran without the `AttributeError` related to `update_news_tweet_analysis`, confirming the earlier refactoring fix is active.
+    *   **Next Action:** Monitor the **20:00 UTC** scheduled tweet job via logs (`heroku logs --tail --app btcbuzzbot --dyno worker`) to verify that the database type fix and logging fix allow the 24h price change calculation to execute correctly. 
+*   **20:00 UTC Tweet Verification SUCCESS:**
+    *   Logs confirmed the `scheduled_tweet_2000` job executed without any database or logger errors.
+    *   The formatted tweet log showed a correctly calculated non-zero percentage change (e.g., `+0.16%`).
+    *   The tweet was successfully posted.
+    *   **Result:** The fixes for the `prices.timestamp` data type and the missing logger in `database.py` are confirmed to be working. The 24h price change calculation is now operational. 
