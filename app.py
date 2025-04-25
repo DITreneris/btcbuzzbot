@@ -49,6 +49,51 @@ else:
     print(f"No DATABASE_URL found. Using SQLite ({SQLITE_DB_PATH}) for Flask app.")
 # --- END DB Configuration ---
 
+# --- START Jinja Filter Definition ---
+def format_datetime_filter(value, format='%Y-%m-%d %H:%M:%S %Z'): # Added %Z for timezone display
+    """Jinja filter to format datetime objects or strings."""
+    if not value:
+        return ""
+    try:
+        # If it's already a datetime object
+        if isinstance(value, datetime.datetime):
+            dt_obj = value
+        else:
+            # Attempt to parse from ISO format string (common from DB)
+            # Handle potential 'Z' for UTC
+            if isinstance(value, str):
+                 value = value.replace('Z', '+00:00')
+                 # Try parsing different common formats
+                 try:
+                     dt_obj = datetime.datetime.fromisoformat(value)
+                 except ValueError:
+                     # Fallback for simpler formats if needed
+                     # Example format with microseconds and offset:
+                     try:
+                         dt_obj = datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S.%f%z')
+                     except ValueError:
+                         # Add more formats or a simpler fallback if needed
+                         dt_obj = datetime.datetime.strptime(value.split('.')[0], '%Y-%m-%d %H:%M:%S') # Try without microseconds/tz
+
+            else:
+                 return value # Return original if not string or datetime
+
+        # Ensure it's timezone-aware (assume UTC if naive) - safer for display
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=datetime.timezone.utc)
+
+        # Convert to local time if desired (requires pytz or similar)
+        # For now, just format as UTC or with its existing timezone
+        return dt_obj.strftime(format)
+
+    except (ValueError, TypeError) as e:
+        app.logger.warning(f"Could not format datetime value '{value}': {e}")
+        return value # Return original value if formatting fails
+
+# Register the filter
+app.jinja_env.filters['format_datetime'] = format_datetime_filter
+# --- END Jinja Filter Definition ---
+
 # Initialize rate limiter
 limiter = Limiter(
     get_remote_address,
@@ -767,19 +812,12 @@ def admin_panel():
     logger.debug(f"Calculated sentiment trend: {sentiment_trend}")
     # --- END Parse News Analysis and Calculate Trend ---
 
-    # --- Fetch Quotes and Jokes --- 
-    logger.info("Fetching quotes and jokes for admin panel.")
-    quotes = []
-    jokes = []
-    try:
-        from src.database import Database # Explicitly import Database inside the function
-        db = Database() # Instantiate our Database class
-        quotes = asyncio.run(db.get_all_quotes())
-        jokes = asyncio.run(db.get_all_jokes())
-        # No need to manually close, Database methods handle connections.
-    except Exception as e:
-        app.logger.error(f"Error fetching quotes/jokes for admin panel: {e}", exc_info=True)
-        flash(f'Error fetching quotes/jokes: {e}', 'danger')
+    # --- Fetch Quotes and Jokes (Synchronously) ---
+    logger.info("Fetching quotes and jokes for admin panel (sync).")
+    quotes = get_all_quotes_sync()
+    jokes = get_all_jokes_sync()
+    # Add flash messages if fetching failed (functions now return empty lists on error)
+    # Check logs for specific errors if lists are empty unexpectedly.
     # --- End Fetch Quotes and Jokes ---
 
     return render_template(
@@ -1183,6 +1221,43 @@ def delete_joke_route(joke_id):
     return redirect(url_for('admin_panel'))
 
 # --- END Content Management Routes ---
+
+# --- START Sync Quote/Joke Fetchers ---
+def get_all_quotes_sync():
+    """Synchronously get all quotes for the admin panel."""
+    quotes = []
+    try:
+        with get_db_connection() as conn:
+            cursor_factory = RealDictCursor if IS_POSTGRES else None
+            cursor = conn.cursor(cursor_factory=cursor_factory)
+            query = "SELECT * FROM quotes ORDER BY id ASC"
+            cursor.execute(query)
+            quotes = cursor.fetchall()
+            cursor.close()
+            app.logger.info(f"Fetched {len(quotes)} quotes synchronously.")
+    except Exception as e:
+        app.logger.error(f"Error getting all quotes sync: {e}", exc_info=True)
+    # Ensure list of dicts, even if RealDictCursor wasn't used or fetchall returned None
+    return [dict(q) for q in quotes] if quotes else []
+
+
+def get_all_jokes_sync():
+    """Synchronously get all jokes for the admin panel."""
+    jokes = []
+    try:
+        with get_db_connection() as conn:
+            cursor_factory = RealDictCursor if IS_POSTGRES else None
+            cursor = conn.cursor(cursor_factory=cursor_factory)
+            query = "SELECT * FROM jokes ORDER BY id ASC"
+            cursor.execute(query)
+            jokes = cursor.fetchall()
+            cursor.close()
+            app.logger.info(f"Fetched {len(jokes)} jokes synchronously.")
+    except Exception as e:
+        app.logger.error(f"Error getting all jokes sync: {e}", exc_info=True)
+    # Ensure list of dicts
+    return [dict(j) for j in jokes] if jokes else []
+# --- END Sync Quote/Joke Fetchers ---
 
 if __name__ == '__main__':
     app.run(debug=True) 
