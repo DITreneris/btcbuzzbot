@@ -130,10 +130,9 @@ def create_scheduler():
             id=NEWS_FETCH_JOB_ID,
             name='Fetch News Tweets',
             replace_existing=True,
-            misfire_grace_time=NEWS_FETCH_GRACE_SECONDS, # Use variable
-            executor='default'
+            misfire_grace_time=NEWS_FETCH_GRACE_SECONDS # Use variable
         )
-        logger.info(f"News fetching job added (interval: {NEWS_FETCH_INTERVAL_MINUTES} minutes).") # Updated log message
+        logger.info(f"News fetching job added (interval: {NEWS_FETCH_INTERVAL_MINUTES} minutes).")
     else:
         logger.warning("News fetching job NOT added: Task not available.")
 
@@ -147,7 +146,7 @@ def create_scheduler():
             name='Analyze News Tweets',
             replace_existing=True
         )
-        logger.info(f"News analysis job added (interval: {NEWS_ANALYZE_INTERVAL_MINUTES} minutes).") # Updated log
+        logger.info(f"News analysis job added (interval: {NEWS_ANALYZE_INTERVAL_MINUTES} minutes).")
     else:
         logger.warning("News analysis job NOT added: Task not available.")
 
