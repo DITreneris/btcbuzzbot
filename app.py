@@ -8,11 +8,17 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import threading
+import asyncio
+import json
+import logging
+from collections import defaultdict
+from datetime import timedelta, timezone
 
 # Database imports
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import tweepy
+from src.database import Database
 
 # Import requests with proper error handling
 try:
@@ -651,38 +657,142 @@ def posts():
 @app.route('/admin')
 @limiter.limit("30 per minute")
 def admin_panel():
-    """Display the main admin dashboard"""
-    # Basic stats
-    stats = get_basic_stats()
+    """Display the admin panel"""
+    logger = logging.getLogger(__name__) # Ensure logger is available
+    logger.info("Admin panel accessed.")
     
-    # Price history (e.g., last 7 days)
-    price_data = get_price_history(days=7)
-    
-    # Recent posts (bot's generated tweets)
+    # Fetch existing data
+    bot_status = get_bot_status()
+    schedule = get_scheduler_config()
+    errors = get_recent_errors(limit=10) 
+    price_history = get_price_history(days=7)
     recent_posts = get_recent_posts(limit=5)
-    
-    # Recent errors (from bot_logs?)
-    recent_errors = get_recent_errors(limit=5)
+    potential_news_raw = get_potential_news(limit=25) # Fetch a bit more for trend calc
 
-    # --- NEW: Get potential news tweets ---
-    potential_news = get_potential_news(limit=10)
+    # --- START Parse News Analysis and Calculate Trend ---
+    processed_news_list = []
+    sentiment_by_day = defaultdict(lambda: {'sum': 0.0, 'count': 0})
+    logger.info(f"Processing {len(potential_news_raw)} potential news items for analysis display.")
+    now_utc = datetime.now(timezone.utc)
+    cutoff_date = now_utc - timedelta(days=7) # Trend for last 7 days
 
-    # --- ADDED: Get current bot status --- 
-    current_bot_status = get_bot_status() 
+    for news_item in potential_news_raw:
+        # Ensure news_item is mutable if it's not already a dict (it should be from RealDictCursor)
+        if not isinstance(news_item, dict):
+             news_item = dict(news_item) # Convert if necessary
 
-    # --- ADDED: Get scheduler config --- 
-    schedule_config = get_scheduler_config()
-    
-    # Render template
-    return render_template('admin.html',
-                           stats=stats,
-                           price_history=price_data,
-                           recent_posts=recent_posts,
-                           recent_errors=recent_errors,
-                           potential_news=potential_news,
-                           bot_status=current_bot_status, # Pass bot_status to the template
-                           schedule=schedule_config # Pass schedule config to the template
-                           )
+        # Initialize placeholders
+        news_item['parsed_significance'] = None
+        news_item['parsed_sentiment'] = None
+        news_item['parsed_summary'] = 'N/A'
+
+        raw_analysis = news_item.get('llm_raw_analysis')
+        if raw_analysis:
+            try:
+                # Check if raw_analysis is already a dict (from psycopg2 jsonb)
+                if isinstance(raw_analysis, dict):
+                     analysis = raw_analysis
+                else:
+                     analysis = json.loads(raw_analysis) # Parse if it's a string
+
+                # --- Adjust keys based on ACTUAL Groq JSON output --- 
+                significance = analysis.get('significance_score')
+                sentiment = analysis.get('sentiment_score')
+                summary = analysis.get('summary', 'N/A')
+                # --- End key adjustment ---
+                
+                # Attempt conversion and store
+                try:
+                    if significance is not None:
+                        news_item['parsed_significance'] = int(significance)
+                except (ValueError, TypeError): pass # Ignore conversion errors
+                
+                try:
+                    if sentiment is not None:
+                        news_item['parsed_sentiment'] = float(sentiment)
+                except (ValueError, TypeError): pass # Ignore conversion errors
+                
+                news_item['parsed_summary'] = summary
+                
+                # --- Add to sentiment trend calculation --- 
+                pub_date = news_item.get('published_at')
+                if pub_date and news_item['parsed_sentiment'] is not None:
+                    # Ensure pub_date is timezone-aware (UTC) for comparison
+                    if isinstance(pub_date, str):
+                        try:
+                            pub_date = datetime.fromisoformat(pub_date.replace('Z', '+00:00'))
+                        except ValueError:
+                            pub_date = None # Ignore if parse fails
+                            
+                    if pub_date:
+                         if pub_date.tzinfo is None:
+                              # Assume naive db timestamp is UTC if not PostgreSQL TIMESTAMPTZ
+                              pub_date = pub_date.replace(tzinfo=timezone.utc) 
+                              
+                         # Ensure comparison is valid (both offset-aware or both naive)
+                         if now_utc.tzinfo is not None and pub_date.tzinfo is not None:
+                              comparison_possible = True
+                         elif now_utc.tzinfo is None and pub_date.tzinfo is None:
+                              comparison_possible = True
+                         else:
+                              comparison_possible = False # Mixed aware/naive - avoid comparison
+                              logger.warning(f"Skipping sentiment trend calc for tweet {news_item.get('id', 'N/A')}: Mixed timezone awareness.")
+                              
+                         if comparison_possible and pub_date >= cutoff_date:
+                            day_str = pub_date.strftime('%Y-%m-%d')
+                            sentiment_by_day[day_str]['sum'] += news_item['parsed_sentiment']
+                            sentiment_by_day[day_str]['count'] += 1
+                            
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse llm_raw_analysis JSON for tweet ID {news_item.get('id', 'N/A')}")
+            except Exception as parse_err:
+                logger.error(f"Error processing analysis for tweet ID {news_item.get('id', 'N/A')}: {parse_err}", exc_info=True)
+                
+        processed_news_list.append(news_item) # Add the (potentially modified) item
+
+    # --- Calculate average sentiment trend --- 
+    sentiment_trend = []
+    # Iterate through the last 7 days to ensure all days are present
+    for i in range(7):
+        day_obj = now_utc - timedelta(days=i)
+        day_str = day_obj.strftime('%Y-%m-%d')
+        if day_str in sentiment_by_day and sentiment_by_day[day_str]['count'] > 0:
+            avg_score = sentiment_by_day[day_str]['sum'] / sentiment_by_day[day_str]['count']
+            sentiment_trend.append({'date': day_str, 'score': avg_score})
+        else:
+             sentiment_trend.append({'date': day_str, 'score': None}) # Use None for days with no data
+
+    sentiment_trend.reverse() # Show oldest first for trend display
+    logger.debug(f"Calculated sentiment trend: {sentiment_trend}")
+    # --- END Parse News Analysis and Calculate Trend ---
+
+    # --- Fetch Quotes and Jokes --- 
+    logger.info("Fetching quotes and jokes for admin panel.")
+    quotes = []
+    jokes = []
+    try:
+        db = Database() # Instantiate our Database class
+        quotes = asyncio.run(db.get_all_quotes())
+        jokes = asyncio.run(db.get_all_jokes())
+        # No need to manually close, Database methods handle connections.
+    except Exception as e:
+        app.logger.error(f"Error fetching quotes/jokes for admin panel: {e}", exc_info=True)
+        flash(f'Error fetching quotes/jokes: {e}', 'danger')
+    # --- End Fetch Quotes and Jokes ---
+
+    return render_template(
+        'admin.html',
+        title='Admin Panel',
+        bot_status=bot_status,
+        schedule=schedule,
+        errors=errors,
+        price_history=price_history,
+        recent_posts=recent_posts,
+        potential_news=processed_news_list, # Pass the processed list
+        sentiment_trend=sentiment_trend, # Pass the trend data
+        quotes=quotes, # Pass quotes
+        jokes=jokes    # Pass jokes
+    )
 
 @app.route('/control_bot/<action>', methods=['GET', 'POST'])
 def control_bot(action):
@@ -983,6 +1093,94 @@ def ratelimit_handler(e):
 # Initialize the database on startup
 with app.app_context():
     init_db()
+
+# --- START Content Management Routes ---
+
+@app.route('/admin/add_quote', methods=['POST'])
+@limiter.limit("15 per minute") # Limit add operations
+def add_quote_route():
+    quote_text = request.form.get('quote_text')
+    logger = logging.getLogger(__name__) # Ensure logger is available
+    logger.info(f"Attempting to add new quote. Text: '{quote_text[:30]}...'")
+    category = request.form.get('category', 'motivational') # Default category
+    if not quote_text:
+        flash('Quote text cannot be empty.', 'warning')
+        return redirect(url_for('admin_panel'))
+
+    try:
+        db = Database()
+        quote_id = asyncio.run(db.add_quote(quote_text, category))
+        if quote_id:
+            flash(f'Quote added successfully (ID: {quote_id}).', 'success')
+        else:
+            flash('Failed to add quote. Check logs.', 'danger')
+    except Exception as e:
+        app.logger.error(f"Error in add_quote_route: {e}", exc_info=True)
+        flash(f'Error adding quote: {e}', 'danger')
+        
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/delete_quote/<int:quote_id>', methods=['POST'])
+@limiter.limit("15 per minute") # Limit delete operations
+def delete_quote_route(quote_id):
+    try:
+        logger = logging.getLogger(__name__) # Ensure logger is available
+        logger.info(f"Attempting to delete quote ID: {quote_id}")
+        db = Database()
+        success = asyncio.run(db.delete_quote(quote_id))
+        if success:
+            flash(f'Quote ID {quote_id} deleted successfully.', 'success')
+        else:
+            flash(f'Failed to delete quote ID {quote_id}. It might not exist or an error occurred.', 'warning')
+    except Exception as e:
+        app.logger.error(f"Error in delete_quote_route: {e}", exc_info=True)
+        flash(f'Error deleting quote: {e}', 'danger')
+        
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/add_joke', methods=['POST'])
+@limiter.limit("15 per minute") # Limit add operations
+def add_joke_route():
+    joke_text = request.form.get('joke_text')
+    logger = logging.getLogger(__name__) # Ensure logger is available
+    logger.info(f"Attempting to add new joke. Text: '{joke_text[:30]}...'")
+    category = request.form.get('category', 'humor') # Default category
+    if not joke_text:
+        flash('Joke text cannot be empty.', 'warning')
+        return redirect(url_for('admin_panel'))
+
+    try:
+        db = Database()
+        joke_id = asyncio.run(db.add_joke(joke_text, category))
+        if joke_id:
+            flash(f'Joke added successfully (ID: {joke_id}).', 'success')
+        else:
+            flash('Failed to add joke. Check logs.', 'danger')
+    except Exception as e:
+        app.logger.error(f"Error in add_joke_route: {e}", exc_info=True)
+        flash(f'Error adding joke: {e}', 'danger')
+        
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/delete_joke/<int:joke_id>', methods=['POST'])
+@limiter.limit("15 per minute") # Limit delete operations
+def delete_joke_route(joke_id):
+    try:
+        logger = logging.getLogger(__name__) # Ensure logger is available
+        logger.info(f"Attempting to delete joke ID: {joke_id}")
+        db = Database()
+        success = asyncio.run(db.delete_joke(joke_id))
+        if success:
+            flash(f'Joke ID {joke_id} deleted successfully.', 'success')
+        else:
+            flash(f'Failed to delete joke ID {joke_id}. It might not exist or an error occurred.', 'warning')
+    except Exception as e:
+        app.logger.error(f"Error in delete_joke_route: {e}", exc_info=True)
+        flash(f'Error deleting joke: {e}', 'danger')
+        
+    return redirect(url_for('admin_panel'))
+
+# --- END Content Management Routes ---
 
 if __name__ == '__main__':
     app.run(debug=True) 
