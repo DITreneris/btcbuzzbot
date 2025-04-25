@@ -166,34 +166,30 @@
     <!-- Recent Posts by Bot -->
     <div class="card mb-4">
         <div class="card-header">Recent Bot Posts</div>
-        <div class="card-body" style="max-height: 300px; overflow-y: auto;">
-            <ul class="list-group list-group-flush">
-                {% for post in recent_posts %}
-                    <li class="list-group-item">
-                        <small class="text-muted">{{ post.timestamp | format_datetime }} ({{ post.content_type }}) - ID: {{ post.tweet_id }}</small><br>
-                        {{ post.tweet }}
-                    </li>
-                {% else %}
-                    <li class="list-group-item">No recent posts found.</li>
-                {% endfor %}
-            </ul>
+        <div class="card-body">
+            {% for post in recent_posts %}
+                <div class="post-entry mb-3 pb-3" style="border-bottom: 1px solid var(--border-color);">
+                    <small class="text-muted">{{ post.timestamp | format_datetime }} ({{ post.content_type }}) - ID: {{ post.tweet_id }}</small><br>
+                    {{ post.tweet }}
+                </div>
+            {% else %}
+                <p class="text-muted">No recent posts found.</p>
+            {% endfor %}
         </div>
     </div>
 
     <!-- Recent Errors -->
     <div class="card mb-4">
         <div class="card-header">Recent Errors</div>
-        <div class="card-body" style="max-height: 300px; overflow-y: auto;">
-            <ul class="list-group list-group-flush">
-                {% for error in errors %}
-                    <li class="list-group-item">
-                        <small class="text-muted">{{ error.timestamp | format_datetime }}</small><br>
-                        {{ error.message }}
-                    </li>
-                {% else %}
-                    <li class="list-group-item">No recent errors logged.</li>
-                {% endfor %}
-            </ul>
+        <div class="card-body">
+            {% for error in errors %}
+                <div class="error-entry mb-3 pb-3" style="border-bottom: 1px solid var(--border-color);">
+                    <small class="text-muted">{{ error.timestamp | format_datetime }}</small><br>
+                    {{ error.message }}
+                </div>
+            {% else %}
+                <p class="text-muted">No recent errors logged.</p>
+            {% endfor %}
         </div>
     </div>
 
@@ -328,30 +324,71 @@ Last Used: {{ joke.last_used | format_datetime if joke.last_used else 'Never' }}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const ctx = document.getElementById('priceChart').getContext('2d');
-    const priceData = {{ price_history | tojson }};
+    // Correctly assign JSON data
+    const priceData = JSON.parse('{{ price_history | tojson | safe }}');
 
-    const labels = priceData.map(item => new Date(item.timestamp).toLocaleString());
-    const data = priceData.map(item => item.price);
+    if (priceData && priceData.length > 0) {
+        const labels = priceData.map(item => {
+            try {
+                // Attempt to create Date object and format it
+                return new Date(item.timestamp).toLocaleString();
+            } catch (e) {
+                console.error("Error parsing timestamp:", item.timestamp, e);
+                return item.timestamp; // Fallback to raw timestamp
+            }
+        });
+        const data = priceData.map(item => item.price);
 
-    new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'BTC Price (USD)',
-                data: data,
-                borderColor: 'rgb(75, 192, 192)',
-                tension: 0.1
-            }]
-        },
-        options: {
-            scales: {
-                y: {
-                    beginAtZero: false
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'BTC Price (USD)',
+                    data: data,
+                    borderColor: 'rgb(247, 147, 26)', // Use accent color
+                    backgroundColor: 'rgba(247, 147, 26, 0.1)',
+                    tension: 0.1,
+                    borderWidth: 2,
+                    pointBackgroundColor: 'rgb(247, 147, 26)'
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            color: '#94A3B8' // Muted text color for ticks
+                        },
+                        grid: {
+                            color: '#334155' // Border color for grid lines
+                        }
+                    },
+                    x: {
+                         ticks: {
+                            color: '#94A3B8' // Muted text color for ticks
+                        },
+                        grid: {
+                            color: '#334155' // Border color for grid lines
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#F1F5F9' // Light text color for legend
+                        }
+                    }
                 }
             }
-        }
-    });
+        });
+    } else {
+        // Optional: Display a message if there's no price data
+        ctx.font = "16px Inter";
+        ctx.fillStyle = "#94A3B8";
+        ctx.textAlign = "center";
+        ctx.fillText("No price history data available.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+    }
 });
 </script>
 
