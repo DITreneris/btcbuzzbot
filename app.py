@@ -18,7 +18,10 @@ from datetime import timedelta, timezone
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import tweepy
-from src.database import Database
+# Remove direct Database import if no longer needed for other functions here
+# from src.database import Database 
+# Import the new repository
+from src.db.content_repo import ContentRepository
 
 # Import requests with proper error handling
 try:
@@ -812,12 +815,22 @@ def admin_panel():
     logger.debug(f"Calculated sentiment trend: {sentiment_trend}")
     # --- END Parse News Analysis and Calculate Trend ---
 
-    # --- Fetch Quotes and Jokes (Synchronously) ---
-    logger.info("Fetching quotes and jokes for admin panel (sync).")
-    quotes = get_all_quotes_sync()
-    jokes = get_all_jokes_sync()
-    # Add flash messages if fetching failed (functions now return empty lists on error)
-    # Check logs for specific errors if lists are empty unexpectedly.
+    # --- Fetch Quotes and Jokes (Using ContentRepository) ---
+    logger.info("Fetching quotes and jokes for admin panel (using ContentRepository).")
+    quotes = []
+    jokes = []
+    try:
+        content_repo = ContentRepository() # Instantiate the repo
+        # Run the async methods using asyncio.run
+        quotes = asyncio.run(content_repo.get_all_quotes())
+        jokes = asyncio.run(content_repo.get_all_jokes())
+        if not quotes:
+             logger.warning('Could not retrieve quotes. Check logs.') # Use warning level
+        if not jokes:
+             logger.warning('Could not retrieve jokes. Check logs.') # Use warning level
+    except Exception as e:
+        logger.error(f"Error fetching content via ContentRepository: {e}", exc_info=True)
+        flash('Error fetching quotes/jokes list. Check logs.', 'danger')
     # --- End Fetch Quotes and Jokes ---
 
     return render_template(
@@ -830,8 +843,8 @@ def admin_panel():
         recent_posts=recent_posts,
         potential_news=processed_news_list, # Pass the processed list
         sentiment_trend=sentiment_trend, # Pass the trend data
-        quotes=quotes, # Pass quotes
-        jokes=jokes    # Pass jokes
+        quotes=quotes, # Pass quotes fetched via repo
+        jokes=jokes    # Pass jokes fetched via repo
     )
 
 @app.route('/control_bot/<action>', methods=['GET', 'POST'])
@@ -1134,22 +1147,23 @@ def ratelimit_handler(e):
 with app.app_context():
     init_db()
 
-# --- START Content Management Routes ---
+# --- START Content Management Routes (Update to use ContentRepository) ---
 
 @app.route('/admin/add_quote', methods=['POST'])
-@limiter.limit("15 per minute") # Limit add operations
+@limiter.limit("15 per minute")
 def add_quote_route():
     quote_text = request.form.get('quote_text')
-    logger = logging.getLogger(__name__) # Ensure logger is available
+    logger = logging.getLogger(__name__) 
     logger.info(f"Attempting to add new quote. Text: '{quote_text[:30]}...'")
-    category = request.form.get('category', 'motivational') # Default category
+    category = request.form.get('category', 'motivational')
     if not quote_text:
         flash('Quote text cannot be empty.', 'warning')
         return redirect(url_for('admin_panel'))
 
     try:
-        db = Database()
-        quote_id = asyncio.run(db.add_quote(quote_text, category))
+        # Use ContentRepository
+        content_repo = ContentRepository()
+        quote_id = asyncio.run(content_repo.add_quote(quote_text, category))
         if quote_id:
             flash(f'Quote added successfully (ID: {quote_id}).', 'success')
         else:
@@ -1161,13 +1175,14 @@ def add_quote_route():
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/delete_quote/<int:quote_id>', methods=['POST'])
-@limiter.limit("15 per minute") # Limit delete operations
+@limiter.limit("15 per minute")
 def delete_quote_route(quote_id):
     try:
-        logger = logging.getLogger(__name__) # Ensure logger is available
+        logger = logging.getLogger(__name__) 
         logger.info(f"Attempting to delete quote ID: {quote_id}")
-        db = Database()
-        success = asyncio.run(db.delete_quote(quote_id))
+        # Use ContentRepository
+        content_repo = ContentRepository()
+        success = asyncio.run(content_repo.delete_quote(quote_id))
         if success:
             flash(f'Quote ID {quote_id} deleted successfully.', 'success')
         else:
@@ -1179,19 +1194,20 @@ def delete_quote_route(quote_id):
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/add_joke', methods=['POST'])
-@limiter.limit("15 per minute") # Limit add operations
+@limiter.limit("15 per minute")
 def add_joke_route():
     joke_text = request.form.get('joke_text')
-    logger = logging.getLogger(__name__) # Ensure logger is available
+    logger = logging.getLogger(__name__)
     logger.info(f"Attempting to add new joke. Text: '{joke_text[:30]}...'")
-    category = request.form.get('category', 'humor') # Default category
+    category = request.form.get('category', 'humor')
     if not joke_text:
         flash('Joke text cannot be empty.', 'warning')
         return redirect(url_for('admin_panel'))
 
     try:
-        db = Database()
-        joke_id = asyncio.run(db.add_joke(joke_text, category))
+        # Use ContentRepository
+        content_repo = ContentRepository()
+        joke_id = asyncio.run(content_repo.add_joke(joke_text, category))
         if joke_id:
             flash(f'Joke added successfully (ID: {joke_id}).', 'success')
         else:
@@ -1203,13 +1219,14 @@ def add_joke_route():
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/delete_joke/<int:joke_id>', methods=['POST'])
-@limiter.limit("15 per minute") # Limit delete operations
+@limiter.limit("15 per minute")
 def delete_joke_route(joke_id):
     try:
-        logger = logging.getLogger(__name__) # Ensure logger is available
+        logger = logging.getLogger(__name__)
         logger.info(f"Attempting to delete joke ID: {joke_id}")
-        db = Database()
-        success = asyncio.run(db.delete_joke(joke_id))
+        # Use ContentRepository
+        content_repo = ContentRepository()
+        success = asyncio.run(content_repo.delete_joke(joke_id))
         if success:
             flash(f'Joke ID {joke_id} deleted successfully.', 'success')
         else:
@@ -1222,42 +1239,8 @@ def delete_joke_route(joke_id):
 
 # --- END Content Management Routes ---
 
-# --- START Sync Quote/Joke Fetchers ---
-def get_all_quotes_sync():
-    """Synchronously get all quotes for the admin panel."""
-    quotes = []
-    try:
-        with get_db_connection() as conn:
-            cursor_factory = RealDictCursor if IS_POSTGRES else None
-            cursor = conn.cursor(cursor_factory=cursor_factory)
-            query = "SELECT * FROM quotes ORDER BY id ASC"
-            cursor.execute(query)
-            quotes = cursor.fetchall()
-            cursor.close()
-            app.logger.info(f"Fetched {len(quotes)} quotes synchronously.")
-    except Exception as e:
-        app.logger.error(f"Error getting all quotes sync: {e}", exc_info=True)
-    # Ensure list of dicts, even if RealDictCursor wasn't used or fetchall returned None
-    return [dict(q) for q in quotes] if quotes else []
-
-
-def get_all_jokes_sync():
-    """Synchronously get all jokes for the admin panel."""
-    jokes = []
-    try:
-        with get_db_connection() as conn:
-            cursor_factory = RealDictCursor if IS_POSTGRES else None
-            cursor = conn.cursor(cursor_factory=cursor_factory)
-            query = "SELECT * FROM jokes ORDER BY id ASC"
-            cursor.execute(query)
-            jokes = cursor.fetchall()
-            cursor.close()
-            app.logger.info(f"Fetched {len(jokes)} jokes synchronously.")
-    except Exception as e:
-        app.logger.error(f"Error getting all jokes sync: {e}", exc_info=True)
-    # Ensure list of dicts
-    return [dict(j) for j in jokes] if jokes else []
-# --- END Sync Quote/Joke Fetchers ---
-
 if __name__ == '__main__':
+    # Initialize DB context if needed for other parts, or remove if unused
+    # with app.app_context():
+    #    init_db() 
     app.run(debug=True) 

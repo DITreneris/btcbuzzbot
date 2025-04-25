@@ -1,15 +1,28 @@
-from typing import Dict, Any, List, Optional
+"""
+Handles selection and management of tweet content (quotes, jokes).
+"""
 import random
-from datetime import datetime, timedelta
+import logging
+# Replace Database import with ContentRepository
+# from src.database import Database 
+from src.db.content_repo import ContentRepository
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 class ContentManager:
-    def __init__(self, database):
-        self.db = database
-        
+    def __init__(self, db_path: str = "btcbuzzbot.db"):
+        """Initializes the ContentManager with a ContentRepository instance."""
+        # Instantiate ContentRepository instead of Database
+        self.repo = ContentRepository(db_path=db_path)
+        if not self.repo:
+             logger.error("ContentManager failed to initialize ContentRepository.")
+             # Handle error appropriately, maybe raise an exception
+
     async def add_quote(self, text: str, category: str = "motivational") -> int:
         """Add a new quote to the database"""
         try:
-            result = await self.db.add_quote(text, category)
+            result = await self.repo.add_quote(text, category)
             return result
         except Exception as e:
             print(f"Error adding quote: {e}")
@@ -18,36 +31,35 @@ class ContentManager:
     async def add_joke(self, text: str, category: str = "humor") -> int:
         """Add a new joke to the database"""
         try:
-            result = await self.db.add_joke(text, category)
+            result = await self.repo.add_joke(text, category)
             return result
         except Exception as e:
             print(f"Error adding joke: {e}")
             return -1
         
-    async def get_random_content(self) -> Dict[str, Any]:
-        """Get random content (quote or joke) that wasn't used recently"""
+    async def get_random_content(self) -> Optional[Dict[str, Any]]:
+        """Gets a random quote or joke, preferring less used ones."""
+        if not self.repo:
+            logger.error("ContentRepository not available in ContentManager.")
+            return None
+            
+        # Decide whether to fetch a quote or a joke (e.g., 50/50 chance)
+        collection = 'quotes' if random.random() < 0.5 else 'jokes'
+        logger.info(f"Attempting to fetch random content from: {collection}")
         try:
-            # Randomly choose between quote and joke
-            collection = random.choice(["quotes", "jokes"])
-            
-            # Get random content from the database
-            content = await self.db.get_random_content(collection)
-            
+            # Call the method on the repository instance
+            content = await self.repo.get_random_content(collection)
             if content:
-                return {
-                    "text": content["text"],
-                    "type": "quote" if collection == "quotes" else "joke",
-                    "category": content.get("category", "general")
-                }
+                logger.info(f"Retrieved content ID {content.get('id')} from {collection}.")
+                content['type'] = collection.rstrip('s') # Add type field (quote/joke)
+                return content
+            else:
+                logger.warning(f"Could not retrieve random content from {collection}.")
+                # Optional: Add fallback logic here if needed (e.g., try the other collection)
+                return None
         except Exception as e:
-            print(f"Error getting random content: {e}")
-        
-        # Fallback content if database is empty or error occurs
-        return {
-            "text": "HODL to the moon! 🚀",
-            "type": "quote",
-            "category": "motivational"
-        }
+             logger.error(f"Error in get_random_content: {e}", exc_info=True)
+             return None
     
     async def add_initial_content(self):
         """Add initial quotes and jokes to the database"""
@@ -81,8 +93,8 @@ class ContentManager:
         
         try:
             # Check if we need to add content
-            quotes_count = await self.db.count_records("quotes")
-            jokes_count = await self.db.count_records("jokes")
+            quotes_count = await self.repo.count_records("quotes")
+            jokes_count = await self.repo.count_records("jokes")
             
             if quotes_count == 0:
                 # Add quotes

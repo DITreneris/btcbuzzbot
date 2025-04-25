@@ -398,282 +398,6 @@ class Database:
             logger.error(f"Error getting price from ~24h ago: {e}", exc_info=True) # Use logger
             return None
     
-    async def get_random_content(self, collection_name: str) -> Optional[Dict[str, Any]]:
-        """Get random content from either quotes or jokes table"""
-        # Get reuse interval from env var or use default
-        reuse_days = int(os.environ.get('CONTENT_REUSE_DAYS', DEFAULT_CONTENT_REUSE_DAYS))
-        
-        try:
-            if self.is_postgres:
-                # PostgreSQL implementation
-                conn = self._get_postgres_connection()
-                cursor = conn.cursor(cursor_factory=RealDictCursor)
-                
-                # Get content that wasn't used in the last X days or was used least
-                sql_query = f"""
-                    SELECT * FROM {collection_name} 
-                    WHERE last_used IS NULL 
-                    OR last_used < NOW() - INTERVAL '%s days'
-                    ORDER BY used_count ASC
-                    LIMIT 10
-                    """
-                cursor.execute(sql_query, (reuse_days,))
-                rows = cursor.fetchall()
-                
-                if not rows:
-                    # If no matches, get any random content
-                    cursor.execute(
-                        f"SELECT * FROM {collection_name} ORDER BY RANDOM() LIMIT 1"
-                    )
-                    rows = cursor.fetchall()
-                
-                if rows:
-                    # Pick random from results
-                    import random
-                    selected = dict(rows[random.randint(0, len(rows) - 1)])
-                    
-                    # Update usage count
-                    cursor.execute(
-                        f"UPDATE {collection_name} SET used_count = used_count + 1, last_used = %s WHERE id = %s",
-                        (datetime.utcnow().isoformat(), selected["id"])
-                    )
-                    conn.commit()
-                    
-                    cursor.close()
-                    conn.close()
-                    return selected
-                
-                cursor.close()
-                conn.close()
-                return None
-            else:
-                # SQLite implementation
-                async with aiosqlite.connect(self.db_path) as db:
-                    db.row_factory = aiosqlite.Row
-                    
-                    # Get content that wasn't used in the last X days or was used least
-                    sql_query = f"""
-                        SELECT * FROM {collection_name} 
-                        WHERE last_used IS NULL 
-                        OR datetime(last_used) < datetime('now', ? || ' days')
-                        ORDER BY used_count ASC
-                        LIMIT 10
-                        """
-                    async with db.execute(sql_query, (f"-{reuse_days}",)) as cursor:
-                        rows = await cursor.fetchall()
-                        
-                        if not rows:
-                            # If no matches, get any random content
-                            async with db.execute(
-                                f"SELECT * FROM {collection_name} ORDER BY RANDOM() LIMIT 1"
-                            ) as random_cursor:
-                                rows = await random_cursor.fetchall()
-                        
-                        if rows:
-                            # Pick random from results
-                            import random
-                            selected = dict(rows[random.randint(0, len(rows) - 1)])
-                            
-                            # Update usage count
-                            await db.execute(
-                                f"UPDATE {collection_name} SET used_count = used_count + 1, last_used = ? WHERE id = ?",
-                                (datetime.utcnow().isoformat(), selected["id"])
-                            )
-                            await db.commit()
-                            
-                            return selected
-                        
-                        return None
-        except Exception as e:
-            print(f"Error getting random content: {e}")
-            return None
-    
-    async def add_quote(self, text: str, category: str = "motivational") -> int:
-        """Add a new quote to the database"""
-        try:
-            if self.is_postgres:
-                conn = self._get_postgres_connection()
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO quotes (text, category, created_at, used_count) VALUES (%s, %s, %s, %s) RETURNING id",
-                    (text, category, datetime.utcnow().isoformat(), 0)
-                )
-                lastrowid = cursor.fetchone()[0]
-                conn.commit()
-                cursor.close()
-                conn.close()
-                return lastrowid
-            else:
-                async with aiosqlite.connect(self.db_path) as db:
-                    cursor = await db.execute(
-                        "INSERT INTO quotes (text, category, created_at, used_count) VALUES (?, ?, ?, ?)",
-                        (text, category, datetime.utcnow().isoformat(), 0)
-                    )
-                    await db.commit()
-                    return cursor.lastrowid
-        except Exception as e:
-            print(f"Error adding quote: {e}")
-            return -1
-    
-    async def add_joke(self, text: str, category: str = "humor") -> int:
-        """Add a new joke to the database"""
-        timestamp = datetime.now().isoformat()
-        sql = """
-        INSERT INTO jokes (text, category, created_at) VALUES ($1, $2, $3) RETURNING id;
-        """
-        params = (text, category, timestamp)
-        
-        if not self.is_postgres:
-            sql = """
-            INSERT INTO jokes (text, category, created_at) VALUES (?, ?, ?);
-            """
-        
-        try:
-            async with self._get_db_cursor() as cursor:
-                await cursor.execute(sql, params)
-                if self.is_postgres:
-                    result = await cursor.fetchone()
-                    return result[0] if result else None
-                else: # SQLite doesn't support RETURNING, get last row id
-                    return cursor.lastrowid
-        except Exception as e:
-            logger.error(f"Error adding joke: {e}", exc_info=True)
-            return None
-
-    async def delete_quote(self, quote_id: int) -> bool:
-        """Delete a quote by its ID."""
-        sql = "DELETE FROM quotes WHERE id = $1"
-        if not self.is_postgres:
-            sql = "DELETE FROM quotes WHERE id = ?"
-        
-        try:
-            async with self._get_db_cursor() as cursor:
-                await cursor.execute(sql, (quote_id,))
-                # cursor.rowcount might not be reliable across drivers/DBs for DELETE
-                # Assuming success if no exception occurs and ID exists.
-                # For more robust check, could SELECT first, but that adds overhead.
-                # Return True for simplicity, relying on exception for failure.
-                # A more robust implementation might check cursor.rowcount if available and > 0.
-                # For now, if execute succeeds, assume deletion was successful or ID didn't exist.
-                # await self.connection.commit() # Assuming context manager handles commit
-                logger.info(f"Attempted deletion for quote ID: {quote_id}")
-                # Let's try to check rowcount for confirmation
-                deleted_count = cursor.rowcount if hasattr(cursor, 'rowcount') else -1 # Get rowcount if available
-                if deleted_count > 0:
-                     logger.info(f"Successfully deleted quote ID: {quote_id}")
-                     return True
-                elif deleted_count == 0:
-                     logger.warning(f"No quote found with ID: {quote_id} to delete.")
-                     return False
-                else:
-                     # rowcount not supported or returned -1, assume success if no exception
-                     logger.info(f"Quote deletion query executed for ID: {quote_id} (rowcount unreliable). Assuming success.")
-                     return True # Optimistic return if rowcount unavailable
-        except Exception as e:
-            logger.error(f"Error deleting quote ID {quote_id}: {e}", exc_info=True)
-            return False
-
-    async def get_all_quotes(self) -> List[Dict]:
-        """Retrieve all quotes from the database."""
-        # Include relevant fields for admin display
-        sql = "SELECT id, text, category, created_at, used_count, last_used FROM quotes ORDER BY id"
-        
-        quotes = []
-        try:
-            async with self._get_db_cursor(dictionary=True) as cursor: # Request dict cursor
-                await cursor.execute(sql)
-                rows = await cursor.fetchall()
-                if rows:
-                     # Convert rows (which might be RealDictRow or similar) to plain dicts
-                     quotes = [dict(row) for row in rows]
-                     logger.info(f"Retrieved {len(quotes)} quotes.")
-                else:
-                     logger.info("No quotes found in the database.")
-        except Exception as e:
-            logger.error(f"Error getting all quotes: {e}", exc_info=True)
-            # Return empty list on error
-        return quotes
-
-    async def delete_joke(self, joke_id: int) -> bool:
-        """Delete a joke by its ID."""
-        sql = "DELETE FROM jokes WHERE id = $1"
-        if not self.is_postgres:
-            sql = "DELETE FROM jokes WHERE id = ?"
-        
-        try:
-            async with self._get_db_cursor() as cursor:
-                await cursor.execute(sql, (joke_id,))
-                logger.info(f"Attempted deletion for joke ID: {joke_id}")
-                deleted_count = cursor.rowcount if hasattr(cursor, 'rowcount') else -1
-                if deleted_count > 0:
-                     logger.info(f"Successfully deleted joke ID: {joke_id}")
-                     return True
-                elif deleted_count == 0:
-                     logger.warning(f"No joke found with ID: {joke_id} to delete.")
-                     return False
-                else:
-                     logger.info(f"Joke deletion query executed for ID: {joke_id} (rowcount unreliable). Assuming success.")
-                     return True
-        except Exception as e:
-            logger.error(f"Error deleting joke ID {joke_id}: {e}", exc_info=True)
-            return False
-
-    async def get_all_jokes(self) -> List[Dict]:
-        """Retrieve all jokes from the database."""
-        # Include relevant fields for admin display
-        sql = "SELECT id, text, category, created_at, used_count, last_used FROM jokes ORDER BY id"
-        
-        jokes = []
-        try:
-            async with self._get_db_cursor(dictionary=True) as cursor: # Request dict cursor
-                await cursor.execute(sql)
-                rows = await cursor.fetchall()
-                if rows:
-                     jokes = [dict(row) for row in rows]
-                     logger.info(f"Retrieved {len(jokes)} jokes.")
-                else:
-                     logger.info("No jokes found in the database.")
-        except Exception as e:
-            logger.error(f"Error getting all jokes: {e}", exc_info=True)
-        return jokes
-
-    async def get_recent_analyzed_news(self, hours_limit: int = 12) -> List[Dict]:
-        """Retrieve recent news tweets that have LLM analysis data."""
-        news_items = []
-        try:
-            # Calculate the timestamp for the cutoff
-            cutoff_timestamp = datetime.utcnow() - timedelta(hours=hours_limit)
-            
-            if self.is_postgres:
-                sql = """
-                SELECT * FROM news_tweets 
-                WHERE llm_raw_analysis IS NOT NULL 
-                AND published_at >= %s 
-                ORDER BY published_at DESC;
-                """
-                params = (cutoff_timestamp,)
-            else: # SQLite
-                sql = """
-                SELECT * FROM news_tweets 
-                WHERE llm_raw_analysis IS NOT NULL 
-                AND datetime(published_at) >= datetime(?)
-                ORDER BY published_at DESC;
-                """
-                params = (cutoff_timestamp.isoformat(),)
-                
-            async with self._get_db_cursor(dictionary=True) as cursor:
-                await cursor.execute(sql, params)
-                rows = await cursor.fetchall()
-                if rows:
-                     news_items = [dict(row) for row in rows]
-                     logger.info(f"Retrieved {len(news_items)} analyzed news items from the last {hours_limit} hours.")
-                else:
-                     logger.info(f"No analyzed news items found in the last {hours_limit} hours.")
-        except Exception as e:
-            logger.error(f"Error getting recent analyzed news: {e}", exc_info=True)
-            # Return empty list on error
-        return news_items
-
     async def log_post(self, tweet_id: str, tweet: str, price: float, price_change: float, content_type: str) -> int:
         """Log a successful post"""
         try:
@@ -921,8 +645,41 @@ class Database:
             print(f"Error storing news tweet (ID: {tweet_data.get('original_tweet_id', 'N/A')}): {e}", file=sys.stderr)
             return None
 
+    async def get_last_fetched_tweet_id(self) -> Optional[str]:
+        """Retrieve the highest original_tweet_id stored in the news_tweets table."""
+        sql = "SELECT MAX(original_tweet_id) FROM news_tweets;"
+        last_id = None
+        try:
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                # Use RealDictCursor potentially if needed, but MAX returns single value
+                cursor = conn.cursor() 
+                cursor.execute(sql)
+                result = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                if result and result[0] is not None:
+                    last_id = str(result[0])
+                    logger.info(f"[Postgres] Found last fetched tweet ID: {last_id}")
+                else:
+                    logger.info("[Postgres] No existing tweets found.")
+            else:
+                # Use aiosqlite for async SQLite
+                async with aiosqlite.connect(self.db_path) as db:
+                    async with db.execute(sql) as cursor:
+                        result = await cursor.fetchone()
+                        if result and result[0] is not None:
+                            last_id = str(result[0])
+                            logger.info(f"[SQLite] Found last fetched tweet ID: {last_id}")
+                        else:
+                             logger.info("[SQLite] No existing tweets found.")
+            return last_id
+        except Exception as e:
+            logger.error(f"Error getting last fetched tweet ID: {e}", exc_info=True)
+            return None # Return None on error
+
     async def get_unprocessed_news_tweets(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Fetches tweets from news_tweets that haven't been marked as news yet."""
+        """Get tweets that haven't been analyzed (is_news=False and llm_raw_analysis IS NULL)."""
         tweets = []
         try:
             if self.is_postgres:
