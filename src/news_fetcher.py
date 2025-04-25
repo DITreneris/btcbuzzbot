@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 
 # Ensure src is in the path if running directly
@@ -65,7 +65,8 @@ class NewsFetcher:
         """Authenticates with Twitter API v2 using tweepy."""
         try:
             # Using Bearer Token (App-only auth) is sufficient for searching tweets
-            client = tweepy.Client(bearer_token=bearer_token, wait_on_rate_limit=True)
+            # Set wait_on_rate_limit=False to handle it manually
+            client = tweepy.Client(bearer_token=bearer_token, wait_on_rate_limit=False)
             # Verify credentials (optional, but good practice) - REMOVED as it requires user context
             # client.get_me() # Throws exception if token is invalid
             logger.info("Twitter client authenticated successfully using Bearer Token.")
@@ -135,6 +136,10 @@ class NewsFetcher:
             else:
                 logger.info("No tweets found matching the query.")
 
+        except tweepy.errors.RateLimitError as e:
+             # Catch rate limit specifically
+             logger.warning(f"Twitter rate limit hit during fetch: {e}. Skipping this fetch cycle and returning no tweets.")
+             return [] # Return empty list immediately without blocking
         except tweepy.errors.TweepyException as e:
             logger.error(f"Twitter API error during fetch: {e}", exc_info=True)
         except Exception as e:
@@ -182,6 +187,78 @@ class NewsFetcher:
             logger.info("News fetch cycle finished.")
         except Exception as e:
             logger.error(f"Error during news fetch cycle execution: {e}", exc_info=True)
+
+    async def fetch_and_store_tweets(self, query="(#Bitcoin OR #BTC) -is:retweet lang:en", max_results=100):
+        """Fetches recent tweets matching the query and stores them."""
+        logger.info(f"Starting fetch_and_store_tweets. Query: '{query}', Max results: {max_results}")
+        last_fetched_id = await self.db.get_last_fetched_tweet_id()
+        logger.info(f"Last fetched tweet ID: {last_fetched_id}")
+
+        fetched_count = 0
+        stored_count = 0
+        try:
+            # Use pagination to get more tweets if needed, respecting limits
+            # Note: search_recent_tweets automatically handles some pagination aspects
+            # We use the 'since_id' parameter to avoid fetching duplicates
+            response = self.twitter_client.search_recent_tweets(
+                query,
+                tweet_fields=["created_at", "public_metrics", "author_id"],
+                user_fields=["username"], # Add user_fields to get username
+                expansions=["author_id"], # Expand author_id to include user details
+                max_results=min(max_results, 100), # Ensure max_results <= 100 per request
+                since_id=last_fetched_id
+            )
+
+            # Check for errors in response (Tweepy v2 specific)
+            if response.errors:
+                 logger.error(f"Twitter API errors during fetch: {response.errors}")
+                 # Handle specific errors if needed (e.g., rate limits)
+                 return # Stop processing if there are errors
+
+            tweets = response.data
+            users = {user.id: user for user in response.includes.get('users', [])} if response.includes else {}
+
+            if not tweets:
+                logger.info("No new tweets found since the last fetch.")
+                return
+
+            logger.info(f"Successfully fetched {len(tweets)} tweets from Twitter API.")
+            fetched_count = len(tweets)
+
+            for tweet in tweets:
+                author_info = users.get(tweet.author_id)
+                author_username = author_info.username if author_info else "Unknown"
+                # Ensure created_at is timezone-aware (UTC)
+                created_at_aware = tweet.created_at
+                if created_at_aware.tzinfo is None:
+                    created_at_aware = created_at_aware.replace(tzinfo=timezone.utc)
+
+                success = await self.db.store_news_tweet(
+                    tweet_id=tweet.id,
+                    text=tweet.text,
+                    author_id=tweet.author_id,
+                    author_username=author_username,
+                    published_at=created_at_aware, # Store aware datetime
+                    fetched_at=datetime.now(timezone.utc) # Store aware datetime
+                )
+                if success:
+                    stored_count += 1
+
+            logger.info(f"Finished storing tweets. Stored {stored_count}/{fetched_count} new tweets.")
+
+        except tweepy.errors.TweepyException as e:
+             logger.error(f"Twitter API error during fetch: {e}", exc_info=True)
+             # Specific handling for rate limits
+             if isinstance(e, tweepy.errors.TooManyRequests):
+                 logger.warning("Twitter API rate limit hit. Skipping this fetch cycle.")
+             # Re-raise or handle other Tweepy errors as needed
+        except Exception as e:
+            logger.error(f"Unexpected error during fetch_and_store_tweets: {e}", exc_info=True)
+
+    async def get_recent_news_tweets(self, limit=10):
+        """Retrieves the most recently stored news tweets."""
+        # Implementation of get_recent_news_tweets method
+        pass
 
 if __name__ == '__main__':
     # Basic test execution if run directly
