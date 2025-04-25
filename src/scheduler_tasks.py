@@ -217,14 +217,15 @@ async def run_news_fetch_wrapper():
     if not news_fetcher_instance:
         logger.warning("News fetcher instance not available, skipping fetch.")
         return
-    logger.info("Executing task: run_news_fetch_wrapper (using shared instance)")
+    # Log the correct task execution start
+    logger.info("Executing task: run_news_fetch_wrapper -> fetch_and_store_tweets (using shared instance)")
     try:
-        # Assuming NewsFetcher has a method like run_cycle() or fetch_and_store()
-        # We might need to adjust NewsFetcher class later if this method doesn't exist
-        await news_fetcher_instance.run_cycle() # Or appropriate method name
-        logger.info("News fetch cycle task completed via shared instance.")
+        # Call the method that actually fetches AND stores
+        await news_fetcher_instance.fetch_and_store_tweets()
+        logger.info("News fetch_and_store_tweets task completed via wrapper.")
     except Exception as e:
-        logger.error(f"Error during news fetch cycle task execution (shared instance): {e}", exc_info=True)
+        logger.error(f"Error during news fetch_and_store_tweets task execution (via wrapper): {e}", exc_info=True)
+        # Log status using the helper
         await log_status_to_db("Error", f"News fetch cycle task failed: {e}")
 
 async def run_analysis_cycle_wrapper():
