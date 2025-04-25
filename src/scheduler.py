@@ -3,9 +3,12 @@ import os
 from datetime import datetime, time
 import signal
 import sys
+import logging
 
 from src.config import Config
 from src.main import post_btc_update, setup_database
+
+logger = logging.getLogger(__name__)
 
 class Scheduler:
     def __init__(self, config=None):
@@ -13,11 +16,11 @@ class Scheduler:
         self.running = False
         self.tasks = []
         
-    async def scheduled_job(self):
-        """Run the scheduled job"""
+    async def scheduled_job(self, time_str: str):
+        """Run the scheduled job for a specific time"""
         current_time = datetime.utcnow()
-        print(f"Running scheduled job at {current_time.isoformat()}")
-        await post_btc_update(self.config)
+        logger.info(f"Running scheduled job triggered by {time_str} at {current_time.isoformat()}")
+        await post_btc_update(self.config, scheduled_time_str=time_str)
     
     def parse_time(self, time_str):
         """Parse time string in format HH:MM"""
@@ -34,17 +37,17 @@ class Scheduler:
         # Setup database with initial content if needed
         await setup_database()
         
-        print("\nBTCBuzzBot Scheduler started")
-        print(f"Timezone: {self.config.timezone}")
-        print("Scheduled posting times:")
+        logger.info("BTCBuzzBot Scheduler started")
+        logger.info(f"Timezone: {self.config.timezone}")
+        logger.info("Scheduled posting times:")
         for time_str in self.config.post_times:
-            print(f"- {time_str}")
-        print("\nPress Ctrl+C to stop\n")
+            logger.info(f"- {time_str}")
+        logger.info("Press Ctrl+C to stop")
         
         # Run the scheduler
         while self.running:
             now_utc = datetime.utcnow()
-            print(f"Scheduler loop check at {now_utc.isoformat()}...")
+            logger.debug(f"Scheduler loop check at {now_utc.isoformat()}...")
             
             # Check if it's time to post
             current_hour_utc = now_utc.hour
@@ -56,17 +59,17 @@ class Scheduler:
                 try:
                     post_hour, post_minute = self.parse_time(time_str)
                 except ValueError:
-                    print(f"ERROR: Invalid time format '{time_str}' in config. Skipping.")
+                    logger.error(f"Invalid time format '{time_str}' in config. Skipping.")
                     continue
                 
                 if current_hour_utc == post_hour and current_minute_utc == post_minute and not post_triggered_this_minute:
-                    print(f"It's posting time! Matched {time_str} UTC.")
-                    task = asyncio.create_task(self.scheduled_job())
+                    logger.info(f"It's posting time! Matched {time_str} UTC.")
+                    task = asyncio.create_task(self.scheduled_job(time_str))
                     self.tasks.append(task)
                     post_triggered_this_minute = True
             
             seconds_to_sleep = 60 - now_utc.second
-            print(f"Scheduler sleeping for {seconds_to_sleep} seconds...")
+            logger.debug(f"Scheduler sleeping for {seconds_to_sleep} seconds...")
             await asyncio.sleep(seconds_to_sleep)
             
             self.tasks = [task for task in self.tasks if not task.done()]
@@ -80,7 +83,7 @@ class Scheduler:
     
     def _shutdown(self):
         """Shutdown the scheduler gracefully"""
-        print("\nShutting down scheduler...")
+        logger.info("Shutting down scheduler...")
         self.running = False
         
         # Cancel all tasks

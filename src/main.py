@@ -2,6 +2,8 @@ import asyncio
 import os
 from datetime import datetime
 import traceback
+import logging
+import json
 
 from src.price_fetcher import PriceFetcher
 from src.database import Database
@@ -9,9 +11,11 @@ from src.twitter_client import TwitterClient
 from src.content_manager import ContentManager
 from src.config import Config
 
+logger = logging.getLogger(__name__)
+
 async def post_direct_tweet():
     """Post a direct tweet without database dependencies"""
-    print("Starting direct tweet posting...")
+    logger.info("Starting direct tweet posting (fallback)...")
     
     # Initialize configuration
     config = Config()
@@ -29,7 +33,7 @@ async def post_direct_tweet():
         async with PriceFetcher() as pf:
             price_data = await pf.get_btc_price_with_retry(config.coingecko_retry_limit)
             current_price = price_data["usd"]
-            print(f"Current BTC price: ${current_price:,.2f}")
+            logger.info(f"Direct tweet fallback: Current BTC price: ${current_price:,.2f}")
         
         # Use a hardcoded quote since we don't have DB access
         content = {
@@ -43,29 +47,30 @@ async def post_direct_tweet():
         tweet = f"BTC: ${current_price:,.2f} {emoji}\n{content['text']}\n#Bitcoin #Crypto"
         
         # Post tweet
-        print(f"Posting tweet: {tweet}")
+        logger.info(f"Direct tweet fallback: Posting tweet: {tweet}")
         tweet_id = await twitter.post_tweet(tweet)
         
         if tweet_id:
-            print(f"Successfully posted tweet with ID: {tweet_id}")
+            logger.info(f"Direct tweet fallback: Successfully posted tweet with ID: {tweet_id}")
             return tweet_id
         else:
-            print("Failed to post tweet - no tweet ID returned")
+            logger.warning("Direct tweet fallback: Failed to post tweet - no tweet ID returned")
             return None
     
     except Exception as e:
-        print(f"Error posting update: {e}")
+        logger.error(f"Direct tweet fallback: Error posting update: {e}", exc_info=True)
         traceback.print_exc()
         return None
 
-async def post_btc_update(config=None):
-    """Fetch BTC price and post update to Twitter"""
+async def post_btc_update(config=None, scheduled_time_str=None):
+    """Fetch BTC price and post update to Twitter based on schedule."""
     # Initialize configuration
     if config is None:
         config = Config()
-    
+
     try:
-        print(f"Initializing SQLite database at {config.sqlite_db_path}...")
+        logger.info(f"Running post_btc_update for scheduled time: {scheduled_time_str or 'Unspecified'}")
+        logger.info(f"Initializing database connection for post_btc_update...")
         # Initialize database
         db = Database(config.sqlite_db_path)
         price_fetcher = PriceFetcher()
@@ -79,73 +84,136 @@ async def post_btc_update(config=None):
         
         try:
             # Fetch current BTC price
-            print("Fetching BTC price...")
+            logger.info("Fetching BTC price...")
             async with price_fetcher as pf:
                 price_data = await pf.get_btc_price_with_retry(config.coingecko_retry_limit)
                 current_price = price_data["usd"]
-                print(f"Current BTC price: ${current_price:,.2f}")
+                logger.info(f"Current BTC price: ${current_price:,.2f}")
             
             # Get latest price from database for comparison
-            print("Fetching latest price from database...")
+            logger.info("Fetching latest price from database...")
             latest_price_data = await db.get_latest_price()
             previous_price = latest_price_data["price"] if latest_price_data else current_price
-            print(f"Previous BTC price: ${previous_price:,.2f}")
+            logger.info(f"Previous BTC price: ${previous_price:,.2f}")
             
             # Calculate price change
             price_change = price_fetcher.calculate_price_change(current_price, previous_price)
-            print(f"Price change: {price_change:+.2f}%")
+            logger.info(f"Price change: {price_change:+.2f}%")
             
             # Store new price in database
-            print("Storing new price in database...")
+            logger.info("Storing new price in database...")
             await db.store_price(current_price)
             
-            # Get random content
-            print("Getting random content...")
-            content = await content_manager.get_random_content()
-            
-            # Format tweet
-            emoji = "📈" if price_change >= 0 else "📉"
-            tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{content['text']}\n#Bitcoin #Crypto"
-            
+            # --- Determine Tweet Content based on Schedule ---
+            tweet = ""
+            content_type = "price_only"
+
+            if scheduled_time_str == '16:00':
+                logger.info("Scheduled time is 16:00 UTC. Generating price-only tweet.")
+                emoji = "📈" if price_change >= 0 else "📉"
+                # Format price-only tweet
+                tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n#Bitcoin #PriceUpdate"
+                # content_type remains 'price_only'
+
+            else:
+                # For other times (or if time is unspecified), try to use news summary first
+                logger.info(f"Scheduled time is {scheduled_time_str or 'other'}. Checking for significant news...")
+                significant_news_summary = None
+                SIGNIFICANCE_THRESHOLD = 5 # Define the threshold
+                NEWS_HOURS_LIMIT = 12 # How far back to look for news
+                
+                try:
+                    recent_analyzed_news = await db.get_recent_analyzed_news(hours_limit=NEWS_HOURS_LIMIT)
+                    for news_item in recent_analyzed_news:
+                        raw_analysis = news_item.get('llm_raw_analysis')
+                        if raw_analysis:
+                             try:
+                                # Parse the JSON analysis
+                                analysis_data = json.loads(raw_analysis)
+                                significance = analysis_data.get('significance_score')
+                                summary = analysis_data.get('summary')
+                                
+                                # Check significance threshold
+                                if significance is not None and summary:
+                                    try:
+                                         if int(significance) >= SIGNIFICANCE_THRESHOLD:
+                                             significant_news_summary = summary
+                                             logger.info(f"Found significant news (Score: {significance}) from tweet {news_item['original_tweet_id']}. Using its summary.")
+                                             break # Use the first significant summary found (most recent)
+                                    except (ValueError, TypeError):
+                                         logger.warning(f"Could not parse significance score '{significance}' as int for tweet {news_item['original_tweet_id']}")
+                             except json.JSONDecodeError:
+                                 logger.warning(f"Could not decode JSON analysis for tweet {news_item['original_tweet_id']}")
+                             except Exception as e_parse:
+                                  logger.error(f"Error parsing analysis for {news_item['original_tweet_id']}: {e_parse}")
+                except Exception as e_db:
+                     logger.error(f"Error fetching recent analyzed news: {e_db}", exc_info=True)
+
+                # --- Generate tweet based on whether significant news was found ---
+                if significant_news_summary:
+                    emoji = "📈" if price_change >= 0 else "📉"
+                    # Format tweet with news summary
+                    tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{significant_news_summary}\n#Bitcoin #News"
+                    content_type = 'news_summary'
+                else:
+                    # Fallback to random content if no significant news found
+                    logger.info("No significant news found or error occurred. Falling back to random content.")
+                    content_manager = ContentManager(db)
+                    content = await content_manager.get_random_content()
+                    if content:
+                        emoji = "📈" if price_change >= 0 else "📉"
+                        # Format tweet with random content
+                        tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{content['text']}\n#Bitcoin #Crypto"
+                        content_type = content["type"]
+                    else:
+                        # Fallback if random content also fails
+                        logger.warning("Failed to get random content. Falling back to price-only tweet.")
+                        emoji = "📈" if price_change >= 0 else "📉"
+                        tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n#Bitcoin #Price"
+                        content_type = "price_fallback"
+
+            # --- END Content Determination ---
+            logger.debug(f"Generated tweet content: {tweet}")
+
             # --- START Duplicate Check ---
-            print("Checking for recent posts...")
+            logger.info("Checking for recent posts...")
             if await db.has_posted_recently(minutes=5):
-                print("Skipping post: A tweet was already posted successfully in the last 5 minutes.")
+                logger.warning("Skipping post: A tweet was already posted successfully in the last 5 minutes.")
                 return None # Indicate skipped post
             # --- END Duplicate Check ---
             
             # Post tweet
-            print(f"Posting tweet: {tweet}")
+            logger.info(f"Posting tweet: {tweet[:50]}...")
             tweet_id = await twitter.post_tweet(tweet)
             
             if tweet_id:
                 # Log successful post
-                print("Logging successful post to database...")
+                logger.info("Logging successful post to database...")
                 await db.log_post(
-                    tweet_id=tweet_id, 
-                    tweet=tweet, 
-                    price=current_price, 
-                    price_change=price_change, 
-                    content_type=content["type"]
+                    tweet_id=tweet_id,
+                    tweet=tweet,
+                    price=current_price,
+                    price_change=price_change,
+                    content_type=content_type
                 )
                 
-                print(f"Successfully posted tweet: {tweet_id}")
+                logger.info(f"Successfully posted tweet: {tweet_id}")
                 return tweet_id
             else:
-                print("Failed to post tweet - no tweet ID returned")
+                logger.warning("Failed to post tweet - no tweet ID returned")
                 return None
         
         except Exception as e:
-            print(f"Error in database operations: {e}")
+            logger.error(f"Error during main tweet posting logic: {e}", exc_info=True)
             raise
         finally:
             # Close connections
-            print("Closing database connection...")
+            logger.info("Closing database connection for post_btc_update...")
             await db.close()
     
     except Exception as e:
-        print(f"Database error: {e}")
-        print("Falling back to direct tweet posting...")
+        logger.error(f"Database connection or other critical error in post_btc_update: {e}", exc_info=True)
+        logger.info("Falling back to direct tweet posting...")
         
         # Fall back to direct tweet posting without database
         return await post_direct_tweet()
@@ -155,18 +223,19 @@ async def setup_database():
     try:
         config = Config()
         # Removed confusing log message, Database class handles its own logging.
-        # print(f"Setting up SQLite database at {config.sqlite_db_path}...") 
+        logger.info("Running database setup...")
         db = Database(config.sqlite_db_path)
         cm = ContentManager(db)
         
         try:
             # Add initial content if needed
+            logger.info("Adding initial content if needed...")
             await cm.add_initial_content()
         finally:
             await db.close()
     except Exception as e:
-        print(f"Database setup failed: {e}")
-        print("Continuing without database setup...")
+        logger.error(f"Database setup failed: {e}", exc_info=True)
+        logger.warning("Continuing without database setup...")
 
 async def main():
     """Main function"""
@@ -174,7 +243,7 @@ async def main():
         # Try to setup database with initial content if needed
         await setup_database()
     except Exception as e:
-        print(f"Database setup failed: {e}")
+        logger.error(f"Database setup failed: {e}", exc_info=True)
     
     # Post BTC update
     await post_btc_update()

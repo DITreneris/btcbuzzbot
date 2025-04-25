@@ -8,15 +8,17 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import threading
-import asyncio 
-import json # Import json
-import logging # Import logging
-from collections import defaultdict # Import defaultdict
+import asyncio
+import json
+import logging
+from collections import defaultdict
+from datetime import timedelta, timezone
 
 # Database imports
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import tweepy
+from src.database import Database
 
 # Import requests with proper error handling
 try:
@@ -671,9 +673,8 @@ def admin_panel():
     processed_news_list = []
     sentiment_by_day = defaultdict(lambda: {'sum': 0.0, 'count': 0})
     logger.info(f"Processing {len(potential_news_raw)} potential news items for analysis display.")
-    # Use explicit datetime class/module references
-    now_utc = datetime.datetime.now(datetime.timezone.utc) # Explicitly use datetime.datetime and datetime.timezone
-    cutoff_date = now_utc - datetime.timedelta(days=7) # Explicitly use datetime.timedelta
+    now_utc = datetime.datetime.now(timezone.utc)
+    cutoff_date = now_utc - timedelta(days=7)
 
     for news_item in potential_news_raw:
         # Ensure news_item is mutable if it's not already a dict (it should be from RealDictCursor)
@@ -719,31 +720,24 @@ def admin_panel():
                     # Ensure pub_date is timezone-aware (UTC) for comparison
                     if isinstance(pub_date, str):
                         try:
-                            # Use explicit datetime.datetime
-                            pub_date = datetime.datetime.fromisoformat(pub_date.replace('Z', '+00:00')) # Explicitly use datetime.datetime
+                            pub_date = datetime.fromisoformat(pub_date.replace('Z', '+00:00'))
                         except ValueError:
-                            logger.warning(f"Could not parse pub_date string: {news_item.get('published_at')} for tweet {news_item.get('id', 'N/A')}")
                             pub_date = None # Ignore if parse fails
                             
                     if pub_date:
-                         if not isinstance(pub_date, datetime.datetime): # Check if it's actually a datetime object now
-                              logger.warning(f"pub_date is not a datetime object after parsing for tweet {news_item.get('id', 'N/A')}: {type(pub_date)}")
-                              continue # Skip if not a datetime
-
                          if pub_date.tzinfo is None:
                               # Assume naive db timestamp is UTC if not PostgreSQL TIMESTAMPTZ
-                              # Use explicit datetime.timezone
-                              pub_date = pub_date.replace(tzinfo=datetime.timezone.utc) # Explicitly use datetime.timezone
+                              pub_date = pub_date.replace(tzinfo=timezone.utc) 
                               
                          # Ensure comparison is valid (both offset-aware or both naive)
                          if now_utc.tzinfo is not None and pub_date.tzinfo is not None:
-                             comparison_possible = True
+                              comparison_possible = True
                          elif now_utc.tzinfo is None and pub_date.tzinfo is None:
-                             comparison_possible = True
+                              comparison_possible = True
                          else:
-                             comparison_possible = False # Mixed aware/naive - avoid comparison
-                             logger.warning(f"Skipping sentiment trend calc for tweet {news_item.get('id', 'N/A')}: Mixed timezone awareness ({now_utc.tzinfo} vs {pub_date.tzinfo}).")
-                             
+                              comparison_possible = False # Mixed aware/naive - avoid comparison
+                              logger.warning(f"Skipping sentiment trend calc for tweet {news_item.get('id', 'N/A')}: Mixed timezone awareness.")
+                              
                          if comparison_possible and pub_date >= cutoff_date:
                             day_str = pub_date.strftime('%Y-%m-%d')
                             sentiment_by_day[day_str]['sum'] += news_item['parsed_sentiment']
@@ -761,7 +755,7 @@ def admin_panel():
     # Iterate through the last 7 days to ensure all days are present
     for i in range(7):
         # Use explicit datetime.timedelta
-        day_obj = now_utc - datetime.timedelta(days=i) # Explicitly use datetime.timedelta
+        day_obj = now_utc - timedelta(days=i)
         day_str = day_obj.strftime('%Y-%m-%d')
         if day_str in sentiment_by_day and sentiment_by_day[day_str]['count'] > 0:
             avg_score = sentiment_by_day[day_str]['sum'] / sentiment_by_day[day_str]['count']
@@ -1101,6 +1095,94 @@ def ratelimit_handler(e):
 # Initialize the database on startup
 with app.app_context():
     init_db()
+
+# --- START Content Management Routes ---
+
+@app.route('/admin/add_quote', methods=['POST'])
+@limiter.limit("15 per minute") # Limit add operations
+def add_quote_route():
+    quote_text = request.form.get('quote_text')
+    logger = logging.getLogger(__name__) # Ensure logger is available
+    logger.info(f"Attempting to add new quote. Text: '{quote_text[:30]}...'")
+    category = request.form.get('category', 'motivational') # Default category
+    if not quote_text:
+        flash('Quote text cannot be empty.', 'warning')
+        return redirect(url_for('admin_panel'))
+
+    try:
+        db = Database()
+        quote_id = asyncio.run(db.add_quote(quote_text, category))
+        if quote_id:
+            flash(f'Quote added successfully (ID: {quote_id}).', 'success')
+        else:
+            flash('Failed to add quote. Check logs.', 'danger')
+    except Exception as e:
+        app.logger.error(f"Error in add_quote_route: {e}", exc_info=True)
+        flash(f'Error adding quote: {e}', 'danger')
+        
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/delete_quote/<int:quote_id>', methods=['POST'])
+@limiter.limit("15 per minute") # Limit delete operations
+def delete_quote_route(quote_id):
+    try:
+        logger = logging.getLogger(__name__) # Ensure logger is available
+        logger.info(f"Attempting to delete quote ID: {quote_id}")
+        db = Database()
+        success = asyncio.run(db.delete_quote(quote_id))
+        if success:
+            flash(f'Quote ID {quote_id} deleted successfully.', 'success')
+        else:
+            flash(f'Failed to delete quote ID {quote_id}. It might not exist or an error occurred.', 'warning')
+    except Exception as e:
+        app.logger.error(f"Error in delete_quote_route: {e}", exc_info=True)
+        flash(f'Error deleting quote: {e}', 'danger')
+        
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/add_joke', methods=['POST'])
+@limiter.limit("15 per minute") # Limit add operations
+def add_joke_route():
+    joke_text = request.form.get('joke_text')
+    logger = logging.getLogger(__name__) # Ensure logger is available
+    logger.info(f"Attempting to add new joke. Text: '{joke_text[:30]}...'")
+    category = request.form.get('category', 'humor') # Default category
+    if not joke_text:
+        flash('Joke text cannot be empty.', 'warning')
+        return redirect(url_for('admin_panel'))
+
+    try:
+        db = Database()
+        joke_id = asyncio.run(db.add_joke(joke_text, category))
+        if joke_id:
+            flash(f'Joke added successfully (ID: {joke_id}).', 'success')
+        else:
+            flash('Failed to add joke. Check logs.', 'danger')
+    except Exception as e:
+        app.logger.error(f"Error in add_joke_route: {e}", exc_info=True)
+        flash(f'Error adding joke: {e}', 'danger')
+        
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/delete_joke/<int:joke_id>', methods=['POST'])
+@limiter.limit("15 per minute") # Limit delete operations
+def delete_joke_route(joke_id):
+    try:
+        logger = logging.getLogger(__name__) # Ensure logger is available
+        logger.info(f"Attempting to delete joke ID: {joke_id}")
+        db = Database()
+        success = asyncio.run(db.delete_joke(joke_id))
+        if success:
+            flash(f'Joke ID {joke_id} deleted successfully.', 'success')
+        else:
+            flash(f'Failed to delete joke ID {joke_id}. It might not exist or an error occurred.', 'warning')
+    except Exception as e:
+        app.logger.error(f"Error in delete_joke_route: {e}", exc_info=True)
+        flash(f'Error deleting joke: {e}', 'danger')
+        
+    return redirect(url_for('admin_panel'))
+
+# --- END Content Management Routes ---
 
 if __name__ == '__main__':
     app.run(debug=True) 
