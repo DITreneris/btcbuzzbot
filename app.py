@@ -771,6 +771,7 @@ def admin_panel():
     quotes = []
     jokes = []
     try:
+        from src.database import Database # Explicitly import Database inside the function
         db = Database() # Instantiate our Database class
         quotes = asyncio.run(db.get_all_quotes())
         jokes = asyncio.run(db.get_all_jokes())
