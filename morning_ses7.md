@@ -130,48 +130,38 @@ The following steps are proposed to tackle Phase 2 incrementally, prioritizing s
 *   Heroku environment variable `NEWS_FETCH_MAX_RESULTS` set to `5` (Step 2).
 *   Deployment successful, monitoring logs for expected behavior (especially the 16:00 price-only tweet). 
 
-## Debugging Session (2025-04-25 ~14:00-15:00 UTC)
+## Debugging News Fetching (2025-04-25 ~17:00-19:00 UTC)
 
-**Goal:** Resolve issues preventing the Admin Panel (`/admin`) from loading correctly and diagnose stale data.
+**Goal:** Diagnose why the `fetch_news_tweets` task was not running and collecting new data since April 22nd.
 
-**Issues Encountered & Resolutions:**
+**Findings & Resolutions:**
 
-1.  **`NameError: name 'Database' is not defined` on `/admin`:**
-    *   **Cause:** The `from src.database import Database` import was missing inside the `admin_panel` function in `app.py`, likely due to earlier refactoring or merge issues.
-    *   **Solution:** Added the import statement directly inside the `try` block where the `Database` class was instantiated within the `admin_panel` function.
-    *   **Wrong Turns:** Initially suspected Heroku build cache issues, leading to cache purge attempts and force pushes which didn't solve the root cause. Also involved confusion between `main` and `master` branches.
-
-2.  **`AttributeError: 'Database' object has no attribute 'get_all_quotes'` on `/admin`:**
-    *   **Cause:** The version of `src/database.py` deployed to Heroku did not contain the newer methods (`get_all_quotes`, `get_all_jokes`, etc.) needed for the content management feature.
-    *   **Solution:** Merged the `master` branch (which contained the fixes) into the `main` branch locally, resolved merge conflicts in `app.py`, and pushed the updated `main` branch to Heroku.
-
-3.  **Git Merge Conflicts & Editor Issues:**
-    *   **Cause:** Conflicts arose in `app.py` during the `git merge master` command due to differing datetime import styles.
-    *   **Solution:** Manually resolved conflicts in the editor. Encountered and resolved Vim swap file issues (`.COMMIT_EDITMSG.swp`) using `del` command on Windows and bypassed editor issues using `git commit -m`.
-
-4.  **`Internal Server Error` (500) on `/admin`:**
-    *   **Cause 1:** `AttributeError: 'Database' object has no attribute '_get_db_cursor'` when calling `asyncio.run(db.get_all_quotes())` etc., from the synchronous Flask route. The `Database` class was not designed for this hybrid usage.
-    *   **Cause 2:** `jinja2.exceptions.TemplateAssertionError: No filter named 'format_datetime'` in `templates/admin.html`.
-    *   **Solution 1:** Replaced the async calls in `admin_panel` with new synchronous helper functions (`get_all_quotes_sync`, `get_all_jokes_sync`) in `app.py` that use `get_db_connection()` directly.
-    *   **Solution 2:** Defined and registered a `format_datetime_filter` function in `app.py` for use in Jinja templates.
-
-5.  **UI Styling Inconsistencies (`/admin`):**
-    *   **Cause:** Various sections (Analyzed News, Content Management, Recent Posts, Recent Errors) appeared with white backgrounds inconsistent with the dark theme, likely due to conflicting Bootstrap classes or poor inheritance.
-    *   **Solution:** Modified `templates/admin.html` to remove explicit `bg-light` classes, add `table-dark` to tables, and use simple `div` elements instead of `ul`/`li` for Recent Posts/Errors to ensure proper background inheritance from the parent `.card` element.
-
-6.  **Stale Data & Rate Limit Investigation:**
-    *   **Issue:** Observed that "Analyzed News Tweets" data stops at 2025-04-22, and the "Recent Sentiment Trend" shows "No Data" for subsequent days. Suspected Twitter API rate limits were hit, preventing the `fetch_news_tweets` task from retrieving new data.
-    *   **Troubleshooting:** Added detailed logging (start, success, failure, rate limit exceptions) to `fetch_news_tweets` task in `src/scheduler/tasks.py` and `fetch_and_store_tweets` in `src/news_fetcher.py`.
-    *   **Current Status:** Deployed logging improvements (`v114`). **Waiting for the next scheduled run (12-hour interval) of `fetch_news_tweets` to observe logs and diagnose the root cause of the fetching failure.** The core data fetching/analysis issue remains **unsolved** pending log analysis.
-
-7.  **Chart JavaScript Errors:**
-    *   **Cause:** Linter detected syntax errors in the Chart.js block in `templates/admin.html` related to JSON parsing.
-    *   **Solution:** Corrected JavaScript to use `JSON.parse('{{ data | tojson | safe }}')`, added dark mode styling to the chart, and included error handling.
+1.  **Initial Observation:** Logs confirmed the `fetch_news_tweets` job was being added by the scheduler on startup but never executed.
+2.  **Code Fixes:**
+    *   Identified and corrected a potential issue where the `run_news_fetch_wrapper` function was incorrectly specified or logged.
+    *   Ensured the scheduler executor was set correctly (`AsyncIOExecutor`).
+3.  **Diagnostic Test:**
+    *   Temporarily changed the news fetch interval (`NEWS_FETCH_INTERVAL_MINUTES`) from `720` (12 hours) to `15` minutes to force execution.
+    *   Restarted the worker dyno.
+4.  **Root Cause Identified:**
+    *   With the 15-minute interval, the `fetch_news_tweets` task **successfully executed** for the first time since the debugging began.
+    *   The execution immediately failed with a `tweepy.errors.TooManyRequests: 429 Too Many Requests - Usage cap exceeded: Monthly product cap` error.
+    *   **Conclusion:** The primary reason for no new data was hitting the **free tier's monthly API usage limit** for the Twitter v2 search endpoint. Previous code bugs may have masked this or contributed to hitting the limit faster.
+5.  **Configuration Correction:**
+    *   Discovered that the `fetch_and_store_tweets` function in `src/news_fetcher.py` had a default `max_results=100`, ignoring the `NEWS_FETCH_MAX_RESULTS` environment variable.
+    *   Modified the scheduler task (`fetch_news_tweets` in `src/scheduler/tasks.py`) to correctly read the `NEWS_FETCH_MAX_RESULTS` environment variable (defaulting to `5`) and pass it to the fetcher function.
+6.  **Mitigation:**
+    *   Set `NEWS_FETCH_INTERVAL_MINUTES` back to `1440` (24 hours) to significantly reduce API calls.
+    *   Verified `NEWS_FETCH_MAX_RESULTS` is set to `5` in Heroku config vars.
+    *   Deployed code changes and restarted the worker dyno.
 
 **Current State (End of Session):**
-*   Admin panel UI loads correctly and is visually consistent with the dark theme.
-*   Content management features (add/delete quotes/jokes) are functional.
-*   **The primary outstanding issue is the stale data (no new tweets fetched/analyzed since Apr 22nd).** Awaiting logs from the next `fetch_news_tweets` run to diagnose further. 
+*   The scheduler is confirmed to be working correctly and triggers the `fetch_news_tweets` job.
+*   The code now correctly respects the `NEWS_FETCH_MAX_RESULTS` setting.
+*   The interval is set to 24 hours.
+*   **The news fetching task remains blocked by the Twitter API's monthly usage cap.** It will likely fail with a 429 error on its next scheduled run (in ~24 hours).
+*   The bot is otherwise operational, but will not have fresh news data until the Twitter API quota resets (likely at the start of the next calendar month).
+*   Other scheduled tasks (analysis, posting) will continue to run, but analysis will operate on stale data, and tweet composition fallback logic will be used more often.
 
 ## Refactoring (2025-04-25 ~15:15 UTC)
 

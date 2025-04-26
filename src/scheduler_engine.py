@@ -21,6 +21,92 @@ if 'src' not in sys.path and os.path.exists('src'):
 elif os.path.basename(os.getcwd()) == 'src':
      sys.path.insert(0, os.path.abspath('..'))
 
+# --- Initialize Shared Instances --- 
+
+logger_init = logging.getLogger('btcbuzzbot.init') # Use a specific logger for init
+db_instance = None
+content_repo_instance = None
+news_fetcher_instance = None # Define placeholder
+news_analyzer_instance = None # Define placeholder
+tweet_handler_instance = None # Define placeholder
+
+try:
+    from src.database import Database
+    from src.db.content_repo import ContentRepository
+    from src.news_fetcher import NewsFetcher # Add import
+    from src.news_analyzer import NewsAnalyzer # Add import
+    from src.tweet_handler import TweetHandler # Add import
+    from src import scheduler_tasks as tasks # Import the tasks module itself
+
+    # 1. Database
+    try:
+        db_path = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
+        db_instance = Database(db_path=db_path)
+        # Assuming synchronous init or handled within Database constructor
+        # asyncio.run(db_instance.init_db()) # Avoid running loop here if possible
+        logger_init.info("Database instance created.")
+        tasks.db_instance = db_instance # Assign to tasks module
+    except Exception as e:
+        logger_init.error(f"FATAL: Failed to initialize Database instance: {e}", exc_info=True)
+        sys.exit("DB Initialization Failed")
+
+    # 2. Content Repository (needs DB)
+    try:
+        content_repo_instance = ContentRepository(db_instance)
+        logger_init.info("ContentRepository instance created.")
+        tasks.content_repo_instance = content_repo_instance # Assign to tasks module
+    except Exception as e:
+        logger_init.error(f"Failed to initialize ContentRepository instance: {e}", exc_info=True)
+        logger_init.warning("Quote/joke fallback may fail.")
+        # Allow continuing, fallback might just fail
+
+    # 3. News Fetcher (needs DB)
+    try:
+        news_fetcher_instance = NewsFetcher(db_instance=db_instance)
+        logger_init.info("NewsFetcher instance created.")
+        tasks.news_fetcher_instance = news_fetcher_instance # Assign to tasks module
+    except ImportError:
+        logger_init.warning("NewsFetcher class not found or import failed. News fetching will be skipped.")
+        tasks.news_fetcher_instance = None # Ensure it's None in tasks
+    except Exception as e:
+        logger_init.error(f"Failed to initialize NewsFetcher instance: {e}", exc_info=True)
+        tasks.news_fetcher_instance = None # Ensure it's None in tasks
+
+    # 4. News Analyzer (needs DB)
+    try:
+        news_analyzer_instance = NewsAnalyzer(db_instance=db_instance)
+        logger_init.info("NewsAnalyzer instance created.")
+        tasks.news_analyzer_instance = news_analyzer_instance # Assign to tasks module
+    except ImportError:
+        logger_init.warning("NewsAnalyzer class not found or import failed. News analysis will be skipped.")
+        tasks.news_analyzer_instance = None # Ensure it's None in tasks
+    except Exception as e:
+        logger_init.error(f"Failed to initialize NewsAnalyzer instance: {e}", exc_info=True)
+        tasks.news_analyzer_instance = None # Ensure it's None in tasks
+
+    # 5. Tweet Handler (needs DB, ContentRepo)
+    try:
+        # Ensure content_repo_instance is valid, even if init failed earlier
+        tweet_handler_instance = TweetHandler(db_instance=db_instance, content_repo=content_repo_instance)
+        logger_init.info("TweetHandler instance created.")
+        tasks.tweet_handler_instance = tweet_handler_instance # Assign to tasks module
+    except ImportError:
+        logger_init.error("FATAL: TweetHandler class not found or import failed. Cannot post tweets.")
+        sys.exit("Tweet Handler Import Failed") # Exit if handler fails
+    except Exception as e:
+        logger_init.error(f"FATAL: Failed to initialize TweetHandler instance: {e}", exc_info=True)
+        sys.exit("Tweet Handler Initialization Failed") # Exit if handler fails
+
+except ImportError as e:
+    # This catches imports at the top of the try block
+    logger_init.error(f"FATAL: Failed to import one or more core components: {e}. Cannot initialize.")
+    sys.exit("Core Component Import Failed")
+except Exception as e:
+    logger_init.error(f"FATAL: An unexpected error occurred during shared instance initialization: {e}", exc_info=True)
+    sys.exit("Unexpected Initialization Error")
+
+# --- End Shared Instance Initialization --- 
+
 # Import tasks and DB related functions/classes
 try:
     from src.scheduler_tasks import (
