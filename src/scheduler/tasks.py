@@ -107,36 +107,58 @@ async def post_tweet_and_log(tweet_job_id: str, scheduled_time_str: str):
     """
     Handles the logic for posting a tweet based on schedule time and logging.
     Includes fallback logic for quote/joke if news fails.
+    Forces quote/joke for specific times (06:00, 22:00).
+    Forces price-only for 16:00.
     """
-    # Use the ContentRepo instance for quotes/jokes
     global tweet_handler_instance, db_instance, news_analyzer_instance, content_repo_instance
     logger.info("--- Task post_tweet_and_log ENTERED ---")
     logger.info(f"Executing task: post_tweet_and_log for job {tweet_job_id} (scheduled: {scheduled_time_str})")
 
-    # Ensure required instances are available
-    # Check for content_repo_instance as well
     if not all([tweet_handler_instance, db_instance, news_analyzer_instance, content_repo_instance]):
-        logger.error("Critical error: One or more required instances are None (TweetHandler, DB, NewsAnalyzer, ContentRepo).")
+        logger.error("Critical error: One or more required instances are None.")
         return
 
     tweet_content = None
     post_type = "error"
 
     try:
-        # Get Latest BTC Price
+        # --- Get Latest BTC Price (Needed for all tweet types) ---
         price_info = await tweet_handler_instance.get_latest_btc_price_info()
         if not price_info:
             logger.error("Failed to get BTC price info. Cannot compose tweet.")
             return
 
-        # Compose Tweet Based on Schedule
-        if scheduled_time_str == '16:00':
+        # --- Compose Tweet Based on Schedule ---
+        if scheduled_time_str in ['06:00', '22:00']:
+            # Force Quote/Joke for these specific times
+            logger.info(f"Scheduled time {scheduled_time_str}. Forcing quote/joke tweet.")
+            try:
+                content_type = random.choice(['quotes', 'jokes'])
+                logger.info(f"Selected content type: {content_type}")
+                content_data = await content_repo_instance.get_random_content(content_type)
+                if content_data:
+                    tweet_content = tweet_handler_instance.compose_fallback_tweet(price_info, content_data, content_type)
+                    post_type = content_type
+                else:
+                    logger.warning(f"Force quote/joke failed: No content found for type '{content_type}'. Defaulting to price-only.")
+                    tweet_content = tweet_handler_instance.compose_price_tweet(price_info)
+                    post_type = "price_only_fallback"
+            except Exception as forced_fallback_err:
+                logger.error(f"Error during forced quote/joke composition: {forced_fallback_err}", exc_info=True)
+                tweet_content = tweet_handler_instance.compose_price_tweet(price_info)
+                post_type = "price_only_fallback_error"
+
+        elif scheduled_time_str == '16:00':
+            # Force Price-Only for 16:00
             logger.info("Scheduled time is 16:00. Composing price-only tweet.")
             tweet_content = tweet_handler_instance.compose_price_tweet(price_info)
             post_type = "price_only"
+
         else:
+            # Standard Times (08:00, 12:00, 20:00): Try News then Fallback
             logger.info(f"Scheduled time {scheduled_time_str}. Attempting standard tweet (News/Fallback).")
             try:
+                # Try news analysis
                 latest_analyzed_news = await news_analyzer_instance.get_latest_analyzed_news_tweet()
                 if latest_analyzed_news:
                     logger.info(f"Found latest analyzed news tweet ID: {latest_analyzed_news.get('id')}")
@@ -147,15 +169,13 @@ async def post_tweet_and_log(tweet_job_id: str, scheduled_time_str: str):
             except Exception as analysis_err:
                 logger.error(f"Error retrieving or composing with news analysis: {analysis_err}", exc_info=True)
 
-            # Fallback Logic
+            # Fallback Logic (if news failed or tweet_content is still None)
             if not tweet_content:
                 logger.info("Falling back to quote/joke tweet composition.")
                 try:
                     content_type = random.choice(['quotes', 'jokes'])
                     logger.info(f"Selected fallback content type: {content_type}")
-                    # --- THE FIX: Use content_repo_instance --- 
                     content_data = await content_repo_instance.get_random_content(content_type)
-                    # --- End Fix ---
                     if content_data:
                         tweet_content = tweet_handler_instance.compose_fallback_tweet(price_info, content_data, content_type)
                         post_type = content_type
@@ -168,7 +188,7 @@ async def post_tweet_and_log(tweet_job_id: str, scheduled_time_str: str):
                     tweet_content = tweet_handler_instance.compose_price_tweet(price_info)
                     post_type = "price_only_fallback_error"
 
-        # Post the composed tweet
+        # --- Post the composed tweet --- (Keep existing posting & logging logic)
         if tweet_content:
             logger.info(f"Attempting to post {post_type} tweet:")
             logger.info(f" > Content preview: {tweet_content[:100]}...")
