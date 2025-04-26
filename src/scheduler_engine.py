@@ -84,10 +84,10 @@ try:
         logger_init.error(f"Failed to initialize NewsAnalyzer instance: {e}", exc_info=True)
         tasks.news_analyzer_instance = None # Ensure it's None in tasks
 
-    # 5. Tweet Handler (needs DB, ContentRepo)
+    # 5. Tweet Handler (needs DB)
     try:
-        # Ensure content_repo_instance is valid, even if init failed earlier
-        tweet_handler_instance = TweetHandler(db_instance=db_instance, content_repo=content_repo_instance)
+        # TweetHandler only needs db_instance according to its __init__
+        tweet_handler_instance = TweetHandler(db_instance=db_instance)
         logger_init.info("TweetHandler instance created.")
         tasks.tweet_handler_instance = tweet_handler_instance # Assign to tasks module
     except ImportError:
