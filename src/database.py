@@ -185,7 +185,7 @@ class Database:
                 # Insert default schedule if not present
                 cursor.execute("SELECT value FROM scheduler_config WHERE key = %s", ('schedule',))
                 if not cursor.fetchone():
-                    default_schedule = "08:00,12:00,16:00,20:00"
+                    default_schedule = "06:00,08:00,12:00,16:00,20:00,22:00"
                     cursor.execute("INSERT INTO scheduler_config (key, value) VALUES (%s, %s)", ('schedule', default_schedule))
                 # --- End Scheduler Tables ---
             
@@ -288,7 +288,7 @@ class Database:
              # Insert default schedule if not present
             cursor.execute("SELECT value FROM scheduler_config WHERE key = ?", ('schedule',))
             if not cursor.fetchone():
-                default_schedule = "08:00,12:00,16:00,20:00"
+                default_schedule = "06:00,08:00,12:00,16:00,20:00,22:00"
                 cursor.execute("INSERT INTO scheduler_config (key, value) VALUES (?, ?)", ('schedule', default_schedule))
             # --- End Scheduler Tables ---
             
