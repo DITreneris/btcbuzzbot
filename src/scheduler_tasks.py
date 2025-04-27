@@ -27,6 +27,15 @@ except ImportError as e:
     Database = None # Placeholder
 
 try:
+    # Import post_btc_update from main
+    from src.main import post_btc_update
+    POST_BTC_UPDATE_AVAILABLE = True
+except ImportError as e:
+    POST_BTC_UPDATE_AVAILABLE = False
+    print(f"Error importing post_btc_update from src.main: {e}. Scheduler tasks may fail.")
+    post_btc_update = None # Placeholder
+
+try:
     from src import tweet_handler as tweet_handler_module # Import the module
     TweetHandler = tweet_handler_module.TweetHandler # Get the class
     TWEET_HANDLER_CLASS_AVAILABLE = True
@@ -132,82 +141,39 @@ async def log_status_to_db(status: str, message: str):
         print(f"CRITICAL: Failed to log bot status to DB: {e}")
 
 # --- Task Functions --- 
-async def post_tweet_and_log():
-    """Posts a tweet using the shared tweet_handler instance and logs the result."""
-    # Add logging at the very start
-    logger.info("--- Task post_tweet_and_log ENTERED ---")
+async def post_tweet_and_log(job_id: str = "unknown", time_str: str = "unknown"):
+    """Calls the main post_btc_update logic and logs the outcome."""
+    logger.info(f"--- Task post_tweet_and_log ENTERED (Job ID: {job_id}, Time: {time_str}) ---") # Added entry log
 
-    # Use the shared instance
-    if not tweet_handler_instance:
-        logger.error("Cannot post tweet: Tweet handler instance not available.")
-        await log_status_to_db("Error", "Tweet handler or DB not available for posting.")
-        return False
+    if not POST_BTC_UPDATE_AVAILABLE:
+        logger.error("Cannot post tweet: post_btc_update function not available.")
+        await log_status_to_db("Error", "post_btc_update function not available for posting.")
+        return False # Indicate failure
 
+    # Config object might be needed by post_btc_update - it reads env vars itself
+    # If post_btc_update relies on a passed config object, we might need to adjust this
+    # For now, assume it initializes its own config or uses shared config if available elsewhere
+    
     try:
-        logger.info("Executing task: post_tweet_and_log")
-        
-        # --- Choose content type and get content --- 
-        # Default content types if environment variable is not set or invalid
-        default_content_types = ['price', 'quote', 'joke']
-        content_types_str = os.environ.get('TWEET_CONTENT_TYPES', None)
-        
-        if content_types_str:
-            # Split the string by comma and strip whitespace
-            content_types_list = [item.strip() for item in content_types_str.split(',') if item.strip()]
-            # Use the list from env var only if it's not empty, otherwise use default
-            content_types = content_types_list if content_types_list else default_content_types
-            logger.debug(f"Using content types from TWEET_CONTENT_TYPES: {content_types}")
-        else:
-            content_types = default_content_types
-            logger.debug(f"TWEET_CONTENT_TYPES not set, using default: {content_types}")
-            
-        # Adjust weighting? e.g., more price tweets
-        # content_types = ['price', 'price', 'quote', 'joke'] 
-        chosen_type = random.choice(content_types)
-        
-        tweet_content = ""
-        content_data = None
-        
-        if chosen_type == 'quote':
-            logger.debug("Attempting to fetch random quote...")
-            content_data = await db_instance.get_random_content('quotes')
-            if content_data:
-                tweet_content = content_data.get('text', '')
-                logger.info(f"Fetched quote: {tweet_content[:50]}...")
-            else:
-                logger.warning("Could not get random quote, falling back to price.")
-                chosen_type = 'price' # Fallback if no quote found
-        elif chosen_type == 'joke':
-            logger.debug("Attempting to fetch random joke...")
-            content_data = await db_instance.get_random_content('jokes')
-            if content_data:
-                tweet_content = content_data.get('text', '')
-                logger.info(f"Fetched joke: {tweet_content[:50]}...")
-            else:
-                logger.warning("Could not get random joke, falling back to price.")
-                chosen_type = 'price' # Fallback if no joke found
-        
-        # If chosen_type is still 'price' (or fallback), tweet_content remains ""
-        logger.info(f"Selected content type: {chosen_type}")
-        
-        # --- Call the tweet handler instance --- 
-        logger.debug(f"Calling tweet_handler_instance.post_tweet with type '{chosen_type}' and content: '{tweet_content[:50]}...'")
-        # Call the method on the instance
-        result = await tweet_handler_instance.post_tweet(tweet_content, content_type=chosen_type)
+        logger.info(f"Executing task: Calling main.post_btc_update for scheduled time {time_str}")
+        # Directly call the function from main.py
+        # Pass the scheduled_time_str which post_btc_update expects
+        tweet_id = await post_btc_update(scheduled_time_str=time_str)
 
-        if isinstance(result, dict) and result.get('success', False):
-             # Logging is handled within tweet_handler now, but we log overall success
-             await log_status_to_db("Running", f"Scheduled tweet ({chosen_type}) posted successfully ({result.get('tweet_id', 'N/A')})")
-             logger.info(f"Scheduled tweet ({chosen_type}) posted successfully: ID {result.get('tweet_id', 'N/A')}")
-             return True
+        if tweet_id:
+            # post_btc_update handles its own detailed logging and DB logging
+            await log_status_to_db("Running", f"Tweet posting task for {time_str} completed successfully (Tweet ID: {tweet_id}).")
+            logger.info(f"Tweet posting task for {time_str} completed successfully (Tweet ID: {tweet_id}).")
+            return True
         else:
-             error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
-             await log_status_to_db("Error", f"Failed to post scheduled {chosen_type} tweet: {error_msg}")
-             logger.error(f"Failed to post scheduled {chosen_type} tweet via tweet_handler: {error_msg}")
-             return False
+            # post_btc_update should log specific errors, this logs the task failure
+            error_msg = f"Task for {time_str} failed: main.post_btc_update did not return a tweet ID."
+            await log_status_to_db("Error", error_msg)
+            logger.warning(error_msg) # Use warning as specific error should be logged by post_btc_update
+            return False
 
     except Exception as e:
-        error_msg = f"Critical error in post_tweet_and_log task: {str(e)}"
+        error_msg = f"Critical error in post_tweet_and_log task for {time_str}: {str(e)}"
         await log_status_to_db("Error", error_msg)
         logger.error(error_msg, exc_info=True)
         return False
@@ -293,18 +259,18 @@ async def reschedule_tweet_jobs(scheduler):
             for time_str in schedule_times:
                 try:
                     hour, minute = map(int, time_str.split(':'))
-                    job_id = f"{TWEET_JOB_ID_PREFIX}{hour:02d}{minute:02d}"
-                    trigger = CronTrigger(hour=hour, minute=minute, timezone=SCHEDULER_TIMEZONE)
-
-                    # Add job - Do NOT use replace_existing=True here
+                    job_id = f"{TWEET_JOB_ID_PREFIX}{time_str.replace(':', '')}" # Use consistent ID format
                     scheduler.add_job(
-                        post_tweet_and_log,
-                        trigger=trigger,
+                        post_tweet_and_log, # This is the target function
+                        trigger='cron',
+                        hour=hour,
+                        minute=minute,
+                        timezone=SCHEDULER_TIMEZONE, # Explicitly set timezone
                         id=job_id,
-                        name=f"Post Tweet {time_str} UTC",
-                        # replace_existing=False, # Default is False, or omit
-                        misfire_grace_time=60,
-                        executor='default'
+                        name=f'Post Tweet at {time_str} UTC',
+                        args=[job_id, time_str], # Pass job_id and time_str as arguments
+                        replace_existing=True, # Replace existing job with same ID
+                        misfire_grace_time=60 # Allow 1 min grace period
                     )
                     logger.info(f"Reschedule task ADDED job: {job_id} for {time_str} UTC")
                     added_count += 1

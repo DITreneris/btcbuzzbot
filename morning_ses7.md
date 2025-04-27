@@ -181,3 +181,27 @@ The following steps are proposed to tackle Phase 2 incrementally, prioritizing s
 *   Refactor connection management into a dedicated module/utility.
 
 **Note:** This refactoring is done in parallel with investigating the stale data issue. The primary focus remains on diagnosing the `fetch_news_tweets` failure via logs. 
+
+## Debugging Scheduler Instability (2025-04-27)
+
+**Issue:** Application instability observed again. Tweet posting stopped entirely after the morning of April 26th, despite logs showing the `reschedule_tweet_jobs` task running successfully and adding tweet jobs to the scheduler.
+
+**Diagnosis:**
+1.  **Log Analysis:** Examination of worker logs (`heroku logs --tail --app btcbuzzbot --source app --dyno worker`) confirmed that while `reschedule_tweet_jobs` and `run_analysis_cycle_wrapper` were executing, the actual tweet posting function (`post_tweet_and_log` as scheduled by `reschedule_tweet_jobs`) was **not** being triggered or logged.
+2.  **Code Review:**
+    *   Identified a conflict between the active APScheduler setup (`src/scheduler_engine.py`, `src/scheduler_tasks.py`) and an old, manual `asyncio` loop scheduler present in `src/scheduler.py`.
+    *   Discovered that the `reschedule_tweet_jobs` task was scheduling `src/scheduler_tasks.py :: post_tweet_and_log`.
+    *   Found that `src/scheduler_tasks.py :: post_tweet_and_log` contained simplified tweet logic (random price/quote/joke) and did **not** call the intended, more complex logic in `src/main.py :: post_btc_update` (which handles 16:00 price-only, news analysis, and proper fallbacks).
+    *   The root cause of the scheduled task *not running* was still unclear but suspected to be related to the scheduler conflict or a subtle APScheduler issue.
+
+**Resolution:**
+1.  **Consolidate Logic:** Modified `src/scheduler_tasks.py :: post_tweet_and_log` to remove its simple tweet logic. It now acts as a wrapper that directly calls `src/main.py :: post_btc_update`, ensuring the correct posting logic is used.
+2.  **Pass Arguments:** Updated `src/scheduler_tasks.py :: reschedule_tweet_jobs` to correctly pass the `time_str` (e.g., "08:00") as an argument when scheduling the `post_tweet_and_log` job. This `time_str` is needed by `post_btc_update` to handle time-specific logic (like the 16:00 price-only tweet).
+3.  **Add Logging:** Added an entry log message at the beginning of `src/scheduler_tasks.py :: post_tweet_and_log` to definitively confirm if/when APScheduler executes the task.
+4.  **Remove Conflict:** Deleted the old, conflicting scheduler file `src/scheduler.py`.
+
+**Next Steps:**
+1.  Commit and deploy the changes to Heroku.
+2.  Monitor worker logs closely after deployment to confirm:
+    *   The `post_tweet_and_log` task is now being triggered at the scheduled times (08:00, 12:00, 16:00, 20:00 UTC), indicated by the new entry log message.
+    *   The logs from `src/main.py :: post_btc_update` show the correct execution flow (price fetching, time check, content generation, fallback logic, successful posting). 
