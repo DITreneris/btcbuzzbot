@@ -71,10 +71,10 @@ class ContentManager:
             "Not your keys, not your coins. 🔑",
             "Blockchain is not just a technology, it's a revolution. ⚡",
             "Bitcoin fixes this. 🧠",
-            "Diamond hands win in the long run. 💎🙌",
-            "Fear is temporary, regret is forever. 🤔",
+            # "Diamond hands win in the long run. 💎🙌", # Removed - Similar to HODL
+            # "Fear is temporary, regret is forever. 🤔", # Removed - Too generic
             "The best time to buy Bitcoin was yesterday. The second best time is today. ⏰",
-            "Time in the market beats timing the market. ⌛"
+            # "Time in the market beats timing the market. ⌛" # Removed - Similar to 'best time to buy'
         ]
         
         # Initial jokes
@@ -82,7 +82,7 @@ class ContentManager:
             "Why's Bitcoin so private? It doesn't share its private keys! 🔐",
             "What do you call a Bitcoin investor? HODLer of last resort! 💼",
             "Why is BTC so volatile? It's got commitment issues! 📊",
-            "Why did the Bitcoin go to therapy? It had too many emotional rollercoasters! 🎢",
+            # "Why did the Bitcoin go to therapy? It had too many emotional rollercoasters! 🎢", # Removed - Similar to volatility joke
             "Why don't Bitcoin and banks get along? They have trust issues! 🏦",
             "What did the Bitcoin say to the traditional investor? 'Have fun staying poor!' 💰",
             "What's a Bitcoin's favorite game? Hide and Seek - with your savings! 🙈",
