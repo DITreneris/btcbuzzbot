@@ -42,27 +42,37 @@ try:
     try:
         db_path = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db')
         db_instance = Database(db_path=db_path)
-        # Assuming synchronous init or handled within Database constructor
-        # asyncio.run(db_instance.init_db()) # Avoid running loop here if possible
         logger_init.info("Database instance created.")
         tasks.db_instance = db_instance # Assign to tasks module
     except Exception as e:
         logger_init.error(f"FATAL: Failed to initialize Database instance: {e}", exc_info=True)
         sys.exit("DB Initialization Failed")
 
-    # 2. Content Repository (needs DB)
+    # 2. Content Repository (No longer needs DB passed explicitly)
     try:
-        content_repo_instance = ContentRepository(db_instance)
+        content_repo_instance = ContentRepository()
         logger_init.info("ContentRepository instance created.")
-        tasks.content_repo_instance = content_repo_instance # Assign to tasks module
+        # tasks.content_repo_instance = content_repo_instance # tasks module doesn't seem to use this directly
     except Exception as e:
         logger_init.error(f"Failed to initialize ContentRepository instance: {e}", exc_info=True)
-        logger_init.warning("Quote/joke fallback may fail.")
-        # Allow continuing, fallback might just fail
+        logger_init.warning("Content repository functions may fail.")
+        content_repo_instance = None # Ensure it's None if failed
+        # Allow continuing
 
-    # 3. News Fetcher (needs DB)
+    # 2b. Content Manager (Needs ContentRepository internally)
+    content_manager_instance = None # Define before try block
     try:
-        news_fetcher_instance = NewsFetcher(db_instance=db_instance)
+        content_manager_instance = ContentManager()
+        logger_init.info("ContentManager instance created.")
+        tasks.content_manager_instance = content_manager_instance # Assign to tasks module if needed (NewsAnalyzer uses it)
+    except Exception as e:
+        logger_init.error(f"Failed to initialize ContentManager instance: {e}", exc_info=True)
+        logger_init.warning("Quote/joke fallback may fail if CM is used directly by tasks.")
+        # Allow continuing
+
+    # 3. News Fetcher (Initializes NewsRepository internally)
+    try:
+        news_fetcher_instance = NewsFetcher()
         logger_init.info("NewsFetcher instance created.")
         tasks.news_fetcher_instance = news_fetcher_instance # Assign to tasks module
     except ImportError:
@@ -72,11 +82,15 @@ try:
         logger_init.error(f"Failed to initialize NewsFetcher instance: {e}", exc_info=True)
         tasks.news_fetcher_instance = None # Ensure it's None in tasks
 
-    # 4. News Analyzer (needs DB)
+    # 4. News Analyzer (Needs ContentManager instance)
     try:
-        news_analyzer_instance = NewsAnalyzer(db_instance=db_instance)
-        logger_init.info("NewsAnalyzer instance created.")
-        tasks.news_analyzer_instance = news_analyzer_instance # Assign to tasks module
+        if content_manager_instance:
+            news_analyzer_instance = NewsAnalyzer(content_manager=content_manager_instance)
+            logger_init.info("NewsAnalyzer instance created.")
+            tasks.news_analyzer_instance = news_analyzer_instance # Assign to tasks module
+        else:
+             logger_init.warning("NewsAnalyzer instance NOT created: ContentManager instance was not available.")
+             tasks.news_analyzer_instance = None # Ensure it's None in tasks
     except ImportError:
         logger_init.warning("NewsAnalyzer class not found or import failed. News analysis will be skipped.")
         tasks.news_analyzer_instance = None # Ensure it's None in tasks

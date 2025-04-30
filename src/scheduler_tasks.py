@@ -62,6 +62,15 @@ except ImportError as e:
     print(f"Warning: Could not import NewsAnalyzer class from src.news_analyzer: {e} - News analysis disabled.")
     NewsAnalyzer = None # Placeholder
 
+try:
+    # Import the class, not the run_ function
+    from src.content_manager import ContentManager
+    CONTENT_MANAGER_CLASS_AVAILABLE = True
+except ImportError as e:
+    CONTENT_MANAGER_CLASS_AVAILABLE = False
+    print(f"Warning: Could not import ContentManager class from src.content_manager: {e} - Content management disabled.")
+    ContentManager = None # Placeholder
+
 # --- Constants & Config ---
 TWEET_JOB_ID_PREFIX = 'scheduled_tweet_'
 DB_PATH = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db') 
@@ -84,13 +93,24 @@ if DATABASE_CLASS_AVAILABLE:
 else:
     logger.error("Task DB functions will fail: Database class not available.")
 
+# Initialize Content Manager instance (depends on ContentRepository)
+content_manager_instance = None
+if CONTENT_MANAGER_CLASS_AVAILABLE:
+    try:
+        # ContentManager initializes ContentRepository internally, which reads DB config
+        content_manager_instance = ContentManager()
+        logger.info("Task ContentManager instance initialized.")
+    except Exception as cm_init_e:
+        logger.error(f"Failed to initialize Task ContentManager instance: {cm_init_e}", exc_info=True)
+else:
+    logger.warning("Content Manager instance not created: Class not available.")
+
 # Initialize News Fetcher instance
 news_fetcher_instance = None
 if NEWS_FETCHER_CLASS_AVAILABLE:
     try:
-        # NewsFetcher likely needs API keys, potentially DB access
-        # Assuming it reads from env vars or a config object internally
-        news_fetcher_instance = NewsFetcher(db_instance=db_instance) # Pass db if needed
+        # NewsFetcher now takes no arguments - initializes repo/client internally
+        news_fetcher_instance = NewsFetcher()
         logger.info("Task NewsFetcher instance initialized.")
     except Exception as fetcher_init_e:
         logger.error(f"Failed to initialize Task NewsFetcher instance: {fetcher_init_e}", exc_info=True)
@@ -99,16 +119,19 @@ else:
 
 # Initialize News Analyzer instance
 news_analyzer_instance = None
-if NEWS_ANALYZER_CLASS_AVAILABLE:
+# Requires NewsAnalyzer class AND ContentManager instance
+if NEWS_ANALYZER_CLASS_AVAILABLE and content_manager_instance:
     try:
-        # NewsAnalyzer likely needs API keys, VADER, potentially DB access
-        # Assuming it reads from env vars or a config object internally
-        news_analyzer_instance = NewsAnalyzer(db_instance=db_instance) # Pass db if needed
+        # NewsAnalyzer now requires ContentManager instance
+        news_analyzer_instance = NewsAnalyzer(content_manager=content_manager_instance)
         logger.info("Task NewsAnalyzer instance initialized.")
     except Exception as analyzer_init_e:
         logger.error(f"Failed to initialize Task NewsAnalyzer instance: {analyzer_init_e}", exc_info=True)
 else:
-    logger.warning("News Analyzer instance not created: Class not available.")
+    if not NEWS_ANALYZER_CLASS_AVAILABLE:
+        logger.warning("News Analyzer instance not created: Class not available.")
+    elif not content_manager_instance:
+        logger.warning("News Analyzer instance not created: ContentManager instance not available.")
 
 # Initialize Tweet Handler instance
 tweet_handler_instance = None
