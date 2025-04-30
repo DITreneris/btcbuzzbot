@@ -36,6 +36,7 @@ try:
     from src.news_fetcher import NewsFetcher # Add import
     from src.news_analyzer import NewsAnalyzer # Add import
     from src.tweet_handler import TweetHandler # Add import
+    from src.content_manager import ContentManager # --> ADDED IMPORT
     from src import scheduler_tasks as tasks # Import the tasks module itself
 
     # 1. Database

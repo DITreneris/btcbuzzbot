@@ -100,15 +100,15 @@ Significant progress has been made implementing automated tests to improve stabi
     2.  `src/db/news_repo.py`: News repository functionality
     3.  Integration tests between components
 
-## 6. Immediate Actions (Apr 30th - Updated Again)
+## 6. Immediate Actions (Apr 30th - Updated Yet Again)
 
-Worker crashed after deployment v129 due to `TypeError`s.
+Worker crashed after deployment v130 due to `NameError`s during initialization.
 
-1.  **DEPLOY:** Deploy the fix for the `TypeError`s in `src/scheduler_tasks.py` and `src/scheduler_engine.py` (corrected arguments for `NewsFetcher` and `NewsAnalyzer` instantiation). **(Highest Priority)**
-2.  **Verify:** Monitor logs *very closely* after deployment to confirm:
-    *   Worker starts without `TypeError` or `NameError`.
-    *   The original `AttributeError` in `main.py` during tweet posting (e.g., at 12:00 UTC) is gone.
-    *   News analysis cycles run without error.
+1.  **DEPLOY:** Deploy the fix for the missing imports (`Config` in `news_analyzer.py`, `ContentManager` in `scheduler_engine.py`). **(Highest Priority)**
+2.  **Verify:** Monitor logs *VERY* closely after deployment to confirm:
+    *   Worker starts without initialization errors (`NameError`, `TypeError`).
+    *   The original `AttributeError` in `main.py` during tweet posting is gone.
+    *   News fetch/analysis cycles run without error.
 3.  **Develop:** Implement the Admin UI for Content Management (Step 2.2 Frontend) - *once stability confirmed*.
 4.  **Develop:** Begin implementing Discord Posting via Webhooks (Step 3.1) - *once stability confirmed*.
 5.  **Develop:** Implement the News Analysis Admin Display (Step 2.3) - *once stability confirmed*.
@@ -117,9 +117,13 @@ Worker crashed after deployment v129 due to `TypeError`s.
 
 ## 7. Current Issues
 
-*   **`TypeError` on Instance Creation (NEW - Post-Deployment v129):** The worker crashed again after the `NameError` fix due to `TypeError`s when creating `NewsFetcher` and `NewsAnalyzer` instances in `scheduler_tasks.py` and `scheduler_engine.py`. The calling code was passing the old `db_instance` argument instead of the required arguments (`content_manager` for Analyzer, none for Fetcher). **Priority: Critical (Fix ready locally, needs deployment).**
-*   **`NameError: ContentManager` in `news_analyzer.py` (Fixed Locally):** The worker crashed after deployment v128 due to a missing import for `ContentManager` and incorrect `__init__` in `src/news_analyzer.py`. This fix was included in the v129 deployment but was masked by the `TypeError`.
-*   **`AttributeError` in `main.py` (Fixed Locally):** The original error where `post_btc_update` called `db.get_recent_analyzed_news`. This fix was included in the v128 deployment. Believed to be resolved but verification pending due to subsequent errors.
+*   **`NameError` on Instance Creation (NEW - Post-Deployment v130):** Worker crashed *again* due to missing imports:
+    *   `NameError: Config` in `src/news_analyzer.py` during `__init__`.
+    *   `NameError: ContentManager` in `src/scheduler_engine.py` during instance creation.
+    **Priority: Critical (Fix ready locally, needs deployment).**
+*   **`TypeError` on Instance Creation (Fixed Locally):** TypeErrors from passing `db_instance` in `scheduler_tasks.py`/`engine.py`. Fix included in v130 deployment, masked by `NameError`.
+*   **`NameError: ContentManager` in `news_analyzer.py` (Fixed Locally):** Missing import in `news_analyzer.py`. Fix included in v129 deployment.
+*   **`AttributeError` in `main.py` (Fixed Locally):** Original error calling `db.get_recent_analyzed_news`. Fix included in v128 deployment.
 *   **Twitter API Rate Limit:** Masked by crashes.
 *   **Legacy Tests:** Cluttering root directory.
 
@@ -139,7 +143,7 @@ Goals for this phase involve extending the bot's reach to other platforms and en
 *   **Step 3.1: Implement Discord Posting (via Webhooks)**
     *   **Goal:** Post the same BTC update messages to a designated Discord channel.
     *   **Approach:** Use Discord Webhooks for simplicity in sending messages without needing a full bot client initially.
-    *   **Status:** Not Started. Blocked by deployment of the `TypeError` fix (Step 1 in Immediate Actions).
+    *   **Status:** Not Started. Blocked by deployment of the `NameError` fix (Step 1 in Immediate Actions).
     *   **Tasks:**
         1.  Create a Discord Webhook URL for the target channel.
         2.  Add `DISCORD_WEBHOOK_URL` and `ENABLE_DISCORD_POSTING` to configuration (`config.py`, `.env`, Heroku).

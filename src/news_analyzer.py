@@ -34,6 +34,9 @@ except ImportError as e:
 # --> ADDED IMPORT
 from src.content_manager import ContentManager
 
+# --> ADDED IMPORT
+from src.config import Config
+
 # Remove Config import - no longer needed here
 # try:
 #     from src.config import Config # Import Config
