@@ -80,6 +80,7 @@ DEFAULT_LLM_ANALYZE_MAX_TOKENS = 150 # Adjusted max tokens for JSON + summary
 DEFAULT_LLM_SUMMARIZE_TEMP = 0.5 # Keep for potential separate use? Or remove? Let's remove for now.
 DEFAULT_LLM_SUMMARIZE_MAX_TOKENS = 100 # Keep for potential separate use? Or remove? Let's remove for now.
 DEFAULT_NEWS_ANALYSIS_BATCH_SIZE = 30
+DEFAULT_NEWS_PROCESSING_TIMEOUT_SECONDS = 300 # Added default for timeout
 
 # --- New Combined Analysis Prompt ---
 _ANALYSIS_PROMPT_JSON = """
@@ -118,20 +119,25 @@ class NewsAnalyzer:
         try:
             self.config = Config()
             logger.info("Config loaded in NewsAnalyzer.")
-            # Set attributes from config
-            self.groq_model = self.config.get("GROQ_MODEL", DEFAULT_GROQ_MODEL)
-            self.llm_analyze_temp = float(self.config.get("LLM_ANALYZE_TEMP", DEFAULT_LLM_ANALYZE_TEMP))
-            self.llm_analyze_max_tokens = int(self.config.get("LLM_ANALYZE_MAX_TOKENS", DEFAULT_LLM_ANALYZE_MAX_TOKENS))
-            self.batch_size = int(self.config.get("NEWS_ANALYSIS_BATCH_SIZE", DEFAULT_NEWS_ANALYSIS_BATCH_SIZE))
-            self.processing_timeout = int(self.config.get("NEWS_PROCESSING_TIMEOUT_SECONDS", 300))
+            # Set attributes from config using getattr for safety
+            self.groq_model = getattr(self.config, 'groq_model', DEFAULT_GROQ_MODEL)
+            # Ensure default values are defined at module level
+            self.llm_analyze_temp = float(getattr(self.config, 'llm_analyze_temp', DEFAULT_LLM_ANALYZE_TEMP))
+            self.llm_analyze_max_tokens = int(getattr(self.config, 'llm_analyze_max_tokens', DEFAULT_LLM_ANALYZE_MAX_TOKENS))
+            self.batch_size = int(getattr(self.config, 'news_analysis_batch_size', DEFAULT_NEWS_ANALYSIS_BATCH_SIZE))
+            self.processing_timeout = int(getattr(self.config, 'news_processing_timeout_seconds', DEFAULT_NEWS_PROCESSING_TIMEOUT_SECONDS))
+            self.groq_api_key = getattr(self.config, 'groq_api_key', None)
+
         except Exception as cfg_e:
-            logger.error(f"Failed to load Config in NewsAnalyzer: {cfg_e}. Using defaults.", exc_info=True)
-            # Set defaults manually if config fails
+            # This block might be less likely now if Config init handles errors
+            logger.error(f"Failed during Config access in NewsAnalyzer: {cfg_e}. Using defaults.", exc_info=True)
+            # Set defaults manually if config access fails
             self.groq_model = DEFAULT_GROQ_MODEL
             self.llm_analyze_temp = DEFAULT_LLM_ANALYZE_TEMP
             self.llm_analyze_max_tokens = DEFAULT_LLM_ANALYZE_MAX_TOKENS
             self.batch_size = DEFAULT_NEWS_ANALYSIS_BATCH_SIZE
-            self.processing_timeout = 300
+            self.processing_timeout = DEFAULT_NEWS_PROCESSING_TIMEOUT_SECONDS
+            self.groq_api_key = None # Ensure API key is None
 
         # Check dependencies
         if not GROQ_AVAILABLE or not NEWS_REPO_AVAILABLE:
@@ -160,13 +166,13 @@ class NewsAnalyzer:
         try:
             # Use async client
             self.groq_client = AsyncGroq(
-                api_key=self.config.get("GROQ_API_KEY") # Get API key from config
+                api_key=self.groq_api_key # Use the attribute set from config
             )
-            if self.groq_client:
+            if self.groq_client and self.groq_api_key:
                  logger.info(f"AsyncGroq client initialized within NewsAnalyzer using model {self.groq_model}.")
                  self.initialized = True
             else:
-                 logger.error("NewsAnalyzer initialization failed: Could not initialize AsyncGroq client (API key missing?).")
+                 logger.error("NewsAnalyzer initialization failed: Could not initialize AsyncGroq client (API key missing or client creation failed?).")
                  self.initialized = False # Ensure initialized is false
 
         except Exception as e:

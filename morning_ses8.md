@@ -100,15 +100,15 @@ Significant progress has been made implementing automated tests to improve stabi
     2.  `src/db/news_repo.py`: News repository functionality
     3.  Integration tests between components
 
-## 6. Immediate Actions (Apr 30th - Updated Yet Again)
+## 6. Immediate Actions (Apr 30th - Updated Again^2)
 
-Worker crashed after deployment v130 due to `NameError`s during initialization.
+Worker crashed after deployment v131 due to `AttributeError` during `NewsAnalyzer` config access.
 
-1.  **DEPLOY:** Deploy the fix for the missing imports (`Config` in `news_analyzer.py`, `ContentManager` in `scheduler_engine.py`). **(Highest Priority)**
-2.  **Verify:** Monitor logs *VERY* closely after deployment to confirm:
-    *   Worker starts without initialization errors (`NameError`, `TypeError`).
+1.  **DEPLOY:** Deploy the fix for the `AttributeError` in `src/news_analyzer.py` (using `getattr` to access config attributes). **(Highest Priority)**
+2.  **Verify:** Monitor logs *EXTRA* closely after deployment to confirm:
+    *   Worker starts without ANY initialization errors (`AttributeError`, `NameError`, `TypeError`).
+    *   News analysis cycles run without error (check logs for this specifically).
     *   The original `AttributeError` in `main.py` during tweet posting is gone.
-    *   News fetch/analysis cycles run without error.
 3.  **Develop:** Implement the Admin UI for Content Management (Step 2.2 Frontend) - *once stability confirmed*.
 4.  **Develop:** Begin implementing Discord Posting via Webhooks (Step 3.1) - *once stability confirmed*.
 5.  **Develop:** Implement the News Analysis Admin Display (Step 2.3) - *once stability confirmed*.
@@ -117,11 +117,9 @@ Worker crashed after deployment v130 due to `NameError`s during initialization.
 
 ## 7. Current Issues
 
-*   **`NameError` on Instance Creation (NEW - Post-Deployment v130):** Worker crashed *again* due to missing imports:
-    *   `NameError: Config` in `src/news_analyzer.py` during `__init__`.
-    *   `NameError: ContentManager` in `src/scheduler_engine.py` during instance creation.
-    **Priority: Critical (Fix ready locally, needs deployment).**
-*   **`TypeError` on Instance Creation (Fixed Locally):** TypeErrors from passing `db_instance` in `scheduler_tasks.py`/`engine.py`. Fix included in v130 deployment, masked by `NameError`.
+*   **`AttributeError: 'Config' object has no attribute 'get'` (NEW - Post-Deployment v131):** Worker initialization failed again because `news_analyzer.py` was trying to use `config.get(...)` which doesn't exist. It should access attributes directly (e.g., `config.groq_model`). **Priority: Critical (Fix ready locally, needs deployment).**
+*   **`NameError` on Instance Creation (Fixed Locally):** Missing imports (`Config` in `news_analyzer.py`, `ContentManager` in `scheduler_engine.py`). Fix included in v131 deployment, masked by `AttributeError`.
+*   **`TypeError` on Instance Creation (Fixed Locally):** TypeErrors from passing `db_instance` in `scheduler_tasks.py`/`engine.py`. Fix included in v130 deployment.
 *   **`NameError: ContentManager` in `news_analyzer.py` (Fixed Locally):** Missing import in `news_analyzer.py`. Fix included in v129 deployment.
 *   **`AttributeError` in `main.py` (Fixed Locally):** Original error calling `db.get_recent_analyzed_news`. Fix included in v128 deployment.
 *   **Twitter API Rate Limit:** Masked by crashes.
@@ -143,7 +141,7 @@ Goals for this phase involve extending the bot's reach to other platforms and en
 *   **Step 3.1: Implement Discord Posting (via Webhooks)**
     *   **Goal:** Post the same BTC update messages to a designated Discord channel.
     *   **Approach:** Use Discord Webhooks for simplicity in sending messages without needing a full bot client initially.
-    *   **Status:** Not Started. Blocked by deployment of the `NameError` fix (Step 1 in Immediate Actions).
+    *   **Status:** Not Started. Blocked by deployment of the `AttributeError` fix (Step 1 in Immediate Actions).
     *   **Tasks:**
         1.  Create a Discord Webhook URL for the target channel.
         2.  Add `DISCORD_WEBHOOK_URL` and `ENABLE_DISCORD_POSTING` to configuration (`config.py`, `.env`, Heroku).
