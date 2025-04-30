@@ -31,6 +31,9 @@ except ImportError as e:
     print(f"Error importing NewsRepository: {e}. NewsAnalyzer DB operations will fail.")
     NewsRepository = None
 
+# --> ADDED IMPORT
+from src.content_manager import ContentManager
+
 # Remove Config import - no longer needed here
 # try:
 #     from src.config import Config # Import Config
@@ -101,20 +104,40 @@ class NewsAnalyzer:
     def __init__(self, content_manager: ContentManager):
         # self.db = db_instance # Remove old db instance property
         self.news_repo = None # Add news_repo property
-        self.content_manager = content_manager
+        # --- Removed old ContentManager Init check, rely on type hint & shared instance creation ---
+        self.content_manager = content_manager 
         self.llm_client = None # Assuming it uses an LLM client
         self.initialized = False
-        self.analysis_batch_size = 10 # Example batch size
-        self.processing_timeout = 300 # Example timeout in seconds
+        # self.analysis_batch_size = 10 # Example batch size - Use Config?
+        # self.processing_timeout = 300 # Example timeout in seconds - Use Config?
+
+        # --- Load config for LLM client and other params ---
+        try:
+            self.config = Config()
+            logger.info("Config loaded in NewsAnalyzer.")
+            # Set attributes from config
+            self.groq_model = self.config.get("GROQ_MODEL", DEFAULT_GROQ_MODEL)
+            self.llm_analyze_temp = float(self.config.get("LLM_ANALYZE_TEMP", DEFAULT_LLM_ANALYZE_TEMP))
+            self.llm_analyze_max_tokens = int(self.config.get("LLM_ANALYZE_MAX_TOKENS", DEFAULT_LLM_ANALYZE_MAX_TOKENS))
+            self.batch_size = int(self.config.get("NEWS_ANALYSIS_BATCH_SIZE", DEFAULT_NEWS_ANALYSIS_BATCH_SIZE))
+            self.processing_timeout = int(self.config.get("NEWS_PROCESSING_TIMEOUT_SECONDS", 300))
+        except Exception as cfg_e:
+            logger.error(f"Failed to load Config in NewsAnalyzer: {cfg_e}. Using defaults.", exc_info=True)
+            # Set defaults manually if config fails
+            self.groq_model = DEFAULT_GROQ_MODEL
+            self.llm_analyze_temp = DEFAULT_LLM_ANALYZE_TEMP
+            self.llm_analyze_max_tokens = DEFAULT_LLM_ANALYZE_MAX_TOKENS
+            self.batch_size = DEFAULT_NEWS_ANALYSIS_BATCH_SIZE
+            self.processing_timeout = 300
 
         # Check dependencies
-        if not LLM_CLIENT_AVAILABLE or not NEWS_REPO_AVAILABLE:
-            logger.error("NewsAnalyzer initialization failed due to missing dependencies (LLMClient or NewsRepository).")
+        if not GROQ_AVAILABLE or not NEWS_REPO_AVAILABLE:
+            logger.error("NewsAnalyzer initialization failed due to missing dependencies (Groq or NewsRepository).")
             return
             
         # Initialize NewsRepository
         try:
-            # Assumes default db path or reads from env like NewsRepository itself does
+            # NewsRepository now reads env var internally
             self.news_repo = NewsRepository()
             logger.info("NewsRepository initialized within NewsAnalyzer.")
         except Exception as repo_e:
@@ -125,17 +148,27 @@ class NewsAnalyzer:
             logger.error("NewsAnalyzer initialization failed: ContentManager instance not provided.")
             return
         
-        # Initialize LLM client (example)
+        # Initialize LLM client (Groq Example)
+        # Check availability again
+        if not GROQ_AVAILABLE:
+             logger.error("NewsAnalyzer initialization failed: Groq library not available.")
+             return
+        
         try:
-            self.llm_client = LLMClient()
-            if self.llm_client:
-                 logger.info("LLMClient initialized within NewsAnalyzer.")
+            # Use async client
+            self.groq_client = AsyncGroq(
+                api_key=self.config.get("GROQ_API_KEY") # Get API key from config
+            )
+            if self.groq_client:
+                 logger.info(f"AsyncGroq client initialized within NewsAnalyzer using model {self.groq_model}.")
                  self.initialized = True
             else:
-                 logger.error("NewsAnalyzer initialization failed: Could not initialize LLMClient.")
+                 logger.error("NewsAnalyzer initialization failed: Could not initialize AsyncGroq client (API key missing?).")
+                 self.initialized = False # Ensure initialized is false
 
         except Exception as e:
-            logger.error(f"Error during NewsAnalyzer LLMClient initialization: {e}", exc_info=True)
+            logger.error(f"Error during NewsAnalyzer Groq client initialization: {e}", exc_info=True)
+            self.initialized = False # Ensure initialized is false
 
     # --- Remove old _classify_news_with_llm method ---
     # async def _classify_news_with_llm(self, text: str) -> Tuple[bool, float]:
@@ -303,9 +336,9 @@ class NewsAnalyzer:
             return
 
         try:
-            logger.info(f"Starting news analysis cycle. Fetching up to {self.analysis_batch_size} unprocessed tweets...")
+            logger.info(f"Starting news analysis cycle. Fetching up to {self.batch_size} unprocessed tweets...")
             # Use news_repo to get tweets
-            unprocessed_tweets = await self.news_repo.get_unprocessed_news_tweets(limit=self.analysis_batch_size)
+            unprocessed_tweets = await self.news_repo.get_unprocessed_news_tweets(limit=self.batch_size)
 
             if not unprocessed_tweets:
                 logger.info("No unprocessed news tweets found to analyze.")

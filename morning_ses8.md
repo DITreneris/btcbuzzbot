@@ -100,22 +100,23 @@ Significant progress has been made implementing automated tests to improve stabi
     2.  `src/db/news_repo.py`: News repository functionality
     3.  Integration tests between components
 
-## 6. Immediate Actions (Apr 30th)
+## 6. Immediate Actions (Apr 30th - Updated)
 
-With the new error identified, the priorities shift:
+Worker crashed after deployment due to `NameError`.
 
-1.  **DEPLOY:** Deploy the current codebase to Heroku to push the fix for the `AttributeError` in `src/main.py :: post_btc_update`. **(Highest Priority - Blocked by Open Network)** The fix (using `NewsRepository` correctly) is confirmed present in the local codebase.
-2.  **Verify:** Monitor logs after deployment to confirm the fix and ensure news fetching works as expected (within API limits).
-3.  **Develop:** Implement the Admin UI for Content Management (Step 2.2 Frontend).
-4.  **Develop:** Begin implementing Discord Posting via Webhooks (Step 3.1) - *once step 1 & 2 are complete*.
-5.  **Develop:** Implement the News Analysis Admin Display (Step 2.3) - *once step 1 & 2 are complete*.
-6.  **Test:** Continue expanding test coverage, potentially adding a test for the news fetching logic in `main.py`.
+1.  **DEPLOY:** Deploy the fix for the `NameError` in `src/news_analyzer.py` (added `ContentManager` import and updated `__init__`). **(Highest Priority)**
+2.  **Verify:** Monitor logs closely after deployment to confirm the `NameError` is resolved AND that the previous `AttributeError` in `main.py` is also resolved (as the fix for that was included in the last deployment).
+3.  **Develop:** Implement the Admin UI for Content Management (Step 2.2 Frontend) - *once stability confirmed*.
+4.  **Develop:** Begin implementing Discord Posting via Webhooks (Step 3.1) - *once stability confirmed*.
+5.  **Develop:** Implement the News Analysis Admin Display (Step 2.3) - *once stability confirmed*.
+6.  **Test:** Continue expanding test coverage.
 7.  **Cleanup:** Consider removing legacy test files or moving them to an 'archive' directory.
 
 ## 7. Current Issues
 
-*   **`AttributeError` in `main.py` (Deployed Code):** The *deployed* `post_btc_update` function is incorrectly calling `db.get_recent_analyzed_news` instead of using the `NewsRepository` instance. This breaks the news fetching logic. **Priority: High (Fix ready locally, needs deployment).**
-*   **Twitter API Rate Limit:** The app is hitting Twitter's monthly rate limit for the free tier. This is currently masked by the `AttributeError`, but will become relevant again once the error is fixed. Fallback content is active.
+*   **`NameError: ContentManager` in `news_analyzer.py` (NEW - Post-Deployment):** The worker crashed after deployment due to a missing import for `ContentManager` in `src/news_analyzer.py`. Additionally, the `__init__` method needed updating to load `Config` and initialize the `AsyncGroq` client correctly. **Priority: Critical (Fix ready locally, needs deployment).**
+*   **`AttributeError` in `main.py` (Deployed Code):** The *deployed* `post_btc_update` function is incorrectly calling `db.get_recent_analyzed_news` instead of using the `NewsRepository` instance. This breaks the news fetching logic. **Priority: High (Fix deployed in last attempt, overshadowed by NameError).**
+*   **Twitter API Rate Limit:** The app is hitting Twitter's monthly rate limit for the free tier. This is currently masked by the crashes, but will become relevant again once errors are fixed. Fallback content is active.
 *   **Legacy Tests:** Old test files are cluttering the root directory and failing when run. These are from previous implementations and can be safely archived or removed.
 
 ## 8. Guiding Principles (Reiteration)
@@ -134,7 +135,7 @@ Goals for this phase involve extending the bot's reach to other platforms and en
 *   **Step 3.1: Implement Discord Posting (via Webhooks)**
     *   **Goal:** Post the same BTC update messages to a designated Discord channel.
     *   **Approach:** Use Discord Webhooks for simplicity in sending messages without needing a full bot client initially.
-    *   **Status:** Not Started. Blocked by deployment of the `AttributeError` fix (Step 1 in Immediate Actions).
+    *   **Status:** Not Started. Blocked by deployment of the `NameError` fix (Step 1 in Immediate Actions).
     *   **Tasks:**
         1.  Create a Discord Webhook URL for the target channel.
         2.  Add `DISCORD_WEBHOOK_URL` and `ENABLE_DISCORD_POSTING` to configuration (`config.py`, `.env`, Heroku).
