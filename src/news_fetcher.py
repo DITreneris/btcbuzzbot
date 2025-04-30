@@ -22,6 +22,15 @@ except ImportError as e:
     print(f"Error importing Database from src.database: {e}. NewsFetcher may fail.")
     Database = None # Placeholder
 
+# Import NewsRepository
+try:
+    from src.db.news_repo import NewsRepository
+    NEWS_REPO_AVAILABLE = True
+except ImportError as e:
+    NEWS_REPO_AVAILABLE = False
+    print(f"Error importing NewsRepository: {e}. NewsFetcher DB operations will fail.")
+    NewsRepository = None
+
 try:
     import tweepy
     TWEEPY_AVAILABLE = True
@@ -36,15 +45,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_NEWS_FETCH_MAX_RESULTS = 10
 
 class NewsFetcher:
-    def __init__(self, db_instance: Optional[Database] = None):
-        self.db = db_instance
+    def __init__(self):
+        self.news_repo = None
         self.bearer_token = os.environ.get('TWITTER_BEARER_TOKEN')
         self.twitter_client = None
         self.initialized = False
 
-        if not self.db or not TWEEPY_AVAILABLE:
-            logger.error("NewsFetcher initialization failed due to missing dependencies (Database or tweepy).")
+        if not TWEEPY_AVAILABLE or not NEWS_REPO_AVAILABLE:
+            logger.error("NewsFetcher initialization failed due to missing dependencies (tweepy or NewsRepository).")
             return
+        
+        try:
+            self.news_repo = NewsRepository()
+            logger.info("NewsRepository initialized within NewsFetcher.")
+        except Exception as repo_e:
+             logger.error(f"NewsFetcher failed to initialize NewsRepository: {repo_e}", exc_info=True)
+             return
 
         if not self.bearer_token:
             logger.error("NewsFetcher initialization failed: TWITTER_BEARER_TOKEN not set in environment.")
@@ -148,9 +164,9 @@ class NewsFetcher:
         return processed_tweets
 
     async def store_fetched_tweets(self, tweets: List[Dict[str, Any]]):
-        """Stores fetched tweets in the database, avoiding duplicates."""
-        if not self.initialized or not self.db:
-             logger.error("NewsFetcher not initialized or Database unavailable.")
+        """Stores fetched tweets in the database using NewsRepository."""
+        if not self.initialized or not self.news_repo:
+             logger.error("NewsFetcher not initialized or NewsRepository unavailable.")
              return
              
         if not tweets:
@@ -160,7 +176,7 @@ class NewsFetcher:
         skipped_count = 0
         for tweet_data in tweets:
             try:
-                inserted_id = await self.db.store_news_tweet(tweet_data)
+                inserted_id = await self.news_repo.store_news_tweet(tweet_data)
                 if inserted_id is not None:
                     stored_count += 1
                     logger.debug(f"Stored news tweet {tweet_data['original_tweet_id']} with DB ID {inserted_id}")
@@ -168,7 +184,7 @@ class NewsFetcher:
                     skipped_count += 1
                     logger.debug(f"Skipped duplicate news tweet {tweet_data['original_tweet_id']}")
             except Exception as e:
-                logger.error(f"Error storing tweet {tweet_data.get('original_tweet_id', 'N/A')} in DB: {e}", exc_info=True)
+                logger.error(f"Error storing tweet {tweet_data.get('original_tweet_id', 'N/A')} in DB via repo: {e}", exc_info=True)
                 # Optionally skip failed inserts or retry?
 
         logger.info(f"Finished storing tweets. Stored: {stored_count}, Skipped (duplicates/errors): {skipped_count + (len(tweets) - stored_count - skipped_count)}")
@@ -180,40 +196,40 @@ class NewsFetcher:
             return
 
         try:
-            logger.info("Starting news fetch cycle...")
+            logger.info("Starting news fetch cycle (run_cycle)...")
             fetched_tweets = await self.fetch_tweets()
             if fetched_tweets:
                 await self.store_fetched_tweets(fetched_tweets)
-            logger.info("News fetch cycle finished.")
+            logger.info("News fetch cycle (run_cycle) finished.")
         except Exception as e:
-            logger.error(f"Error during news fetch cycle execution: {e}", exc_info=True)
+            logger.error(f"Error during news fetch cycle execution (run_cycle): {e}", exc_info=True)
 
     async def fetch_and_store_tweets(self, query="(#Bitcoin OR #BTC) -is:retweet lang:en", max_results=100):
-        """Fetches recent tweets matching the query and stores them."""
+        """Fetches recent tweets matching the query and stores them via NewsRepository."""
         logger.info(f"Starting fetch_and_store_tweets. Query: '{query}', Max results: {max_results}")
-        last_fetched_id = await self.db.get_last_fetched_tweet_id()
-        logger.info(f"Last fetched tweet ID: {last_fetched_id}")
+        
+        if not self.initialized or not self.news_repo or not self.twitter_client:
+            logger.error("Cannot fetch_and_store_tweets: NewsFetcher not fully initialized (repo or client missing).")
+            return
+
+        last_fetched_id = await self.news_repo.get_last_fetched_tweet_id()
+        logger.info(f"Last fetched tweet ID from repo: {last_fetched_id}")
 
         fetched_count = 0
         stored_count = 0
         try:
-            # Use pagination to get more tweets if needed, respecting limits
-            # Note: search_recent_tweets automatically handles some pagination aspects
-            # We use the 'since_id' parameter to avoid fetching duplicates
             response = self.twitter_client.search_recent_tweets(
                 query,
                 tweet_fields=["created_at", "public_metrics", "author_id"],
-                user_fields=["username"], # Add user_fields to get username
-                expansions=["author_id"], # Expand author_id to include user details
-                max_results=min(max_results, 100), # Ensure max_results <= 100 per request
+                user_fields=["username"], 
+                expansions=["author_id"], 
+                max_results=min(max_results, 100), 
                 since_id=last_fetched_id
             )
 
-            # Check for errors in response (Tweepy v2 specific)
             if response.errors:
                  logger.error(f"Twitter API errors during fetch: {response.errors}")
-                 # Handle specific errors if needed (e.g., rate limits)
-                 return # Stop processing if there are errors
+                 return 
 
             tweets = response.data
             users = {user.id: user for user in response.includes.get('users', [])} if response.includes else {}
@@ -225,40 +241,46 @@ class NewsFetcher:
             logger.info(f"Successfully fetched {len(tweets)} tweets from Twitter API.")
             fetched_count = len(tweets)
 
+            tweets_to_store = []
             for tweet in tweets:
                 author_info = users.get(tweet.author_id)
                 author_username = author_info.username if author_info else "Unknown"
-                # Ensure created_at is timezone-aware (UTC)
+                
                 created_at_aware = tweet.created_at
                 if created_at_aware.tzinfo is None:
                     created_at_aware = created_at_aware.replace(tzinfo=timezone.utc)
+                
+                tweet_data = {
+                    "original_tweet_id": str(tweet.id),
+                    "author_id": str(tweet.author_id),
+                    "text": tweet.text,
+                    "published_at": created_at_aware.isoformat(),
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "metrics": tweet.public_metrics,
+                    "source": "twitter_search"
+                }
+                tweets_to_store.append(tweet_data)
 
-                success = await self.db.store_news_tweet(
-                    tweet_id=tweet.id,
-                    text=tweet.text,
-                    author_id=tweet.author_id,
-                    author_username=author_username,
-                    published_at=created_at_aware, # Store aware datetime
-                    fetched_at=datetime.now(timezone.utc) # Store aware datetime
-                )
-                if success:
-                    stored_count += 1
+            await self.store_fetched_tweets(tweets_to_store)
 
-            logger.info(f"Finished storing tweets. Stored {stored_count}/{fetched_count} new tweets.")
-
+        except tweepy.errors.RateLimitError as e:
+             logger.warning(f"Twitter rate limit hit during fetch_and_store_tweets: {e}. Skipping.")
         except tweepy.errors.TweepyException as e:
-             logger.error(f"Twitter API error during fetch: {e}", exc_info=True)
-             # Specific handling for rate limits
-             if isinstance(e, tweepy.errors.TooManyRequests):
-                 logger.warning("Twitter API rate limit hit. Skipping this fetch cycle.")
-             # Re-raise or handle other Tweepy errors as needed
+             logger.error(f"Twitter API error during fetch_and_store_tweets: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Unexpected error during fetch_and_store_tweets: {e}", exc_info=True)
 
     async def get_recent_news_tweets(self, limit=10):
-        """Retrieves the most recently stored news tweets."""
-        # Implementation of get_recent_news_tweets method
-        pass
+        """Gets recent tweets from the database via NewsRepository."""
+        if not self.news_repo:
+            logger.error("NewsRepository not available in get_recent_news_tweets")
+            return []
+        try:
+            logger.warning("get_recent_news_tweets called, but functionality needs review/implementation in NewsRepository.")
+            return await self.news_repo.get_unprocessed_news_tweets(limit=limit)
+        except Exception as e:
+            logger.error(f"Error getting recent news tweets via repo: {e}", exc_info=True)
+            return []
 
 if __name__ == '__main__':
     # Basic test execution if run directly

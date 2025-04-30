@@ -7,6 +7,8 @@ import json
 
 from src.price_fetcher import PriceFetcher
 from src.database import Database
+from src.db.news_repo import NewsRepository
+from src.db.content_repo import ContentRepository
 from src.twitter_client import TwitterClient
 from src.content_manager import ContentManager
 from src.config import Config
@@ -68,11 +70,18 @@ async def post_btc_update(config=None, scheduled_time_str=None):
     if config is None:
         config = Config()
 
+    db = None # Initialize db variable
     try:
         logger.info(f"Running post_btc_update for scheduled time: {scheduled_time_str or 'Unspecified'}")
-        logger.info(f"Initializing database connection for post_btc_update...")
-        # Initialize database
-        db = Database(config.sqlite_db_path)
+        logger.info(f"Initializing database/repositories for post_btc_update...")
+        
+        # Initialize database and repositories
+        # Database object is still needed for price/post logging
+        db = Database(config.sqlite_db_path) 
+        news_repo = NewsRepository(config.sqlite_db_path)
+        # ContentManager now uses ContentRepository internally
+        content_manager = ContentManager(config.sqlite_db_path)
+        
         price_fetcher = PriceFetcher()
         twitter = TwitterClient(
             config.twitter_api_key,
@@ -80,7 +89,6 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             config.twitter_access_token,
             config.twitter_access_token_secret
         )
-        content_manager = ContentManager(db)
         
         try:
             # Fetch current BTC price
@@ -92,6 +100,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             
             # Get latest price from database for comparison
             logger.info("Fetching latest price from database...")
+            # Use the main db object for price methods
             latest_price_data = await db.get_latest_price()
             previous_price = latest_price_data["price"] if latest_price_data else current_price
             logger.info(f"Previous BTC price: ${previous_price:,.2f}")
@@ -102,6 +111,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             
             # Store new price in database
             logger.info("Storing new price in database...")
+            # Use the main db object for price methods
             await db.store_price(current_price)
             
             # --- Determine Tweet Content based on Schedule ---
@@ -123,7 +133,8 @@ async def post_btc_update(config=None, scheduled_time_str=None):
                 NEWS_HOURS_LIMIT = 12 # How far back to look for news
                 
                 try:
-                    recent_analyzed_news = await db.get_recent_analyzed_news(hours_limit=NEWS_HOURS_LIMIT)
+                    # Use NewsRepository here
+                    recent_analyzed_news = await news_repo.get_recent_analyzed_news(hours_limit=NEWS_HOURS_LIMIT)
                     for news_item in recent_analyzed_news:
                         raw_analysis = news_item.get('llm_raw_analysis')
                         if raw_analysis:
@@ -147,7 +158,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
                              except Exception as e_parse:
                                   logger.error(f"Error parsing analysis for {news_item['original_tweet_id']}: {e_parse}")
                 except Exception as e_db:
-                     logger.error(f"Error fetching recent analyzed news: {e_db}", exc_info=True)
+                     logger.error(f"Error fetching recent analyzed news from repo: {e_db}", exc_info=True)
 
                 # --- Generate tweet based on whether significant news was found ---
                 if significant_news_summary:
@@ -158,7 +169,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
                 else:
                     # Fallback to random content if no significant news found
                     logger.info("No significant news found or error occurred. Falling back to random content.")
-                    content_manager = ContentManager(db)
+                    # ContentManager is already initialized above
                     content = await content_manager.get_random_content()
                     if content:
                         emoji = "📈" if price_change >= 0 else "📉"
@@ -177,6 +188,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
 
             # --- START Duplicate Check ---
             logger.info("Checking for recent posts...")
+            # Use the main db object for post logging/checking methods
             if await db.has_posted_recently(minutes=5):
                 logger.warning("Skipping post: A tweet was already posted successfully in the last 5 minutes.")
                 return None # Indicate skipped post
@@ -189,6 +201,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             if tweet_id:
                 # Log successful post
                 logger.info("Logging successful post to database...")
+                # Use the main db object for post logging methods
                 await db.log_post(
                     tweet_id=tweet_id,
                     tweet=tweet,
@@ -205,37 +218,45 @@ async def post_btc_update(config=None, scheduled_time_str=None):
         
         except Exception as e:
             logger.error(f"Error during main tweet posting logic: {e}", exc_info=True)
-            raise
-        finally:
-            # Close connections
-            logger.info("Closing database connection for post_btc_update...")
-            await db.close()
-    
+            raise # Re-raise to be caught by outer handler
+        # Removed finally block for db.close() here - handle below
+
     except Exception as e:
         logger.error(f"Database connection or other critical error in post_btc_update: {e}", exc_info=True)
         logger.info("Falling back to direct tweet posting...")
         
         # Fall back to direct tweet posting without database
+        # Ensure db is closed even if we fallback
+        if db and hasattr(db, 'close'):
+            try:
+                await db.close() # Assuming db.close() might be async now?
+            except Exception as close_err:
+                logger.error(f"Error closing DB connection during outer exception handling: {close_err}")
         return await post_direct_tweet()
+    
+    finally:
+        # Ensure database connection is closed
+        if db and hasattr(db, 'close'):
+            try:
+                logger.info("Closing database connection for post_btc_update...")
+                await db.close() # Assuming db.close() might be async now?
+            except Exception as close_err:
+                 logger.error(f"Error closing DB connection in finally block: {close_err}")
+
 
 async def setup_database():
     """Set up the database with initial content"""
+    # This function primarily uses ContentManager now
     try:
         config = Config()
-        # Removed confusing log message, Database class handles its own logging.
         logger.info("Running database setup...")
-        db = Database(config.sqlite_db_path)
-        cm = ContentManager(db)
-        
-        try:
-            # Add initial content if needed
-            logger.info("Adding initial content if needed...")
-            await cm.add_initial_content()
-        finally:
-            await db.close()
+        # ContentManager uses ContentRepository internally
+        cm = ContentManager(config.sqlite_db_path)
+        await cm.add_initial_content()
     except Exception as e:
         logger.error(f"Database setup failed: {e}", exc_info=True)
         logger.warning("Continuing without database setup...")
+
 
 async def main():
     """Main function"""
@@ -245,7 +266,7 @@ async def main():
     except Exception as e:
         logger.error(f"Database setup failed: {e}", exc_info=True)
     
-    # Post BTC update
+    # Post BTC update (Example call, usually run by scheduler)
     await post_btc_update()
 
 if __name__ == "__main__":

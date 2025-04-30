@@ -44,3 +44,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db 
+
+# Archive directory for old files
+archive/ 

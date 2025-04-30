@@ -15,12 +15,21 @@ if 'src' not in sys.path and os.path.exists('src'):
 
 # Project Imports
 try:
-    from src.database import Database
+    from src.database import Database # Keep for type hint? Or remove if not passed?
     DATABASE_CLASS_AVAILABLE = True
 except ImportError as e:
     DATABASE_CLASS_AVAILABLE = False
-    print(f"Error importing Database from src.database: {e}. NewsAnalyzer may fail.")
+    print(f"Error importing Database from src.database: {e}. NewsAnalyzer may have issues.")
     Database = None # Placeholder
+
+# Import NewsRepository
+try:
+    from src.db.news_repo import NewsRepository
+    NEWS_REPO_AVAILABLE = True
+except ImportError as e:
+    NEWS_REPO_AVAILABLE = False
+    print(f"Error importing NewsRepository: {e}. NewsAnalyzer DB operations will fail.")
+    NewsRepository = None
 
 # Remove Config import - no longer needed here
 # try:
@@ -87,50 +96,46 @@ JSON Analysis:
 """
 
 class NewsAnalyzer:
-    # Modify __init__ to accept db_instance and read env vars directly
-    def __init__(self, db_instance: Optional[Database] = None):
-        self.db = db_instance
-        self.vader_analyzer = None
-        self.groq_client = None
-        self.groq_model = os.environ.get('GROQ_MODEL', DEFAULT_GROQ_MODEL)
-        
-        # --- Read LLM parameters from env vars ---
-        self.llm_analyze_temp = float(os.environ.get('LLM_ANALYZE_TEMP', DEFAULT_LLM_ANALYZE_TEMP))
-        self.llm_analyze_max_tokens = int(os.environ.get('LLM_ANALYZE_MAX_TOKENS', DEFAULT_LLM_ANALYZE_MAX_TOKENS))
-        # Remove old classify/summarize params
-        # self.llm_classify_temp = float(os.environ.get('LLM_CLASSIFY_TEMP', DEFAULT_LLM_CLASSIFY_TEMP))
-        # self.llm_classify_max_tokens = int(os.environ.get('LLM_CLASSIFY_MAX_TOKENS', DEFAULT_LLM_CLASSIFY_MAX_TOKENS))
-        # self.llm_summarize_temp = float(os.environ.get('LLM_SUMMARIZE_TEMP', DEFAULT_LLM_SUMMARIZE_TEMP))
-        # self.llm_summarize_max_tokens = int(os.environ.get('LLM_SUMMARIZE_MAX_TOKENS', DEFAULT_LLM_SUMMARIZE_MAX_TOKENS))
-        self.analysis_batch_size = int(os.environ.get('NEWS_ANALYSIS_BATCH_SIZE', DEFAULT_NEWS_ANALYSIS_BATCH_SIZE))
-        # --- End LLM parameters ---
-        
+    # Remove db_instance, add content_manager if needed for context?
+    # Let's assume ContentManager is needed for enrich/analysis context.
+    def __init__(self, content_manager: ContentManager):
+        # self.db = db_instance # Remove old db instance property
+        self.news_repo = None # Add news_repo property
+        self.content_manager = content_manager
+        self.llm_client = None # Assuming it uses an LLM client
         self.initialized = False
+        self.analysis_batch_size = 10 # Example batch size
+        self.processing_timeout = 300 # Example timeout in seconds
 
-        if not self.db:
-            logger.error("NewsAnalyzer initialization failed: Database instance not provided.")
+        # Check dependencies
+        if not LLM_CLIENT_AVAILABLE or not NEWS_REPO_AVAILABLE:
+            logger.error("NewsAnalyzer initialization failed due to missing dependencies (LLMClient or NewsRepository).")
             return
-
+            
+        # Initialize NewsRepository
         try:
-            # Initialize VADER
-            if VADER_AVAILABLE:
-                self.vader_analyzer = SentimentIntensityAnalyzer()
-                logger.info("VADER Sentiment Analyzer initialized.")
-            else:
-                logger.warning("VADER not available, skipping sentiment analysis.")
+            # Assumes default db path or reads from env like NewsRepository itself does
+            self.news_repo = NewsRepository()
+            logger.info("NewsRepository initialized within NewsAnalyzer.")
+        except Exception as repo_e:
+             logger.error(f"NewsAnalyzer failed to initialize NewsRepository: {repo_e}", exc_info=True)
+             return # Stop if repo fails
 
-            # Initialize Groq Client (Async) using environment variable
-            groq_api_key = os.environ.get('GROQ_API_KEY')
-            if GROQ_AVAILABLE and groq_api_key:
-                self.groq_client = AsyncGroq(api_key=groq_api_key)
-                logger.info(f"Groq Async Client initialized for model: {self.groq_model}")
+        if not self.content_manager:
+            logger.error("NewsAnalyzer initialization failed: ContentManager instance not provided.")
+            return
+        
+        # Initialize LLM client (example)
+        try:
+            self.llm_client = LLMClient()
+            if self.llm_client:
+                 logger.info("LLMClient initialized within NewsAnalyzer.")
+                 self.initialized = True
             else:
-                logger.warning("Groq client not initialized (package missing or API key not set). LLM analysis disabled.")
+                 logger.error("NewsAnalyzer initialization failed: Could not initialize LLMClient.")
 
-            logger.info("NewsAnalyzer initialized successfully.")
-            self.initialized = True
         except Exception as e:
-            logger.error(f"Error during NewsAnalyzer initialization: {e}", exc_info=True)
+            logger.error(f"Error during NewsAnalyzer LLMClient initialization: {e}", exc_info=True)
 
     # --- Remove old _classify_news_with_llm method ---
     # async def _classify_news_with_llm(self, text: str) -> Tuple[bool, float]:
@@ -192,164 +197,145 @@ class NewsAnalyzer:
             logger.error(f"Groq API error during combined analysis: {e}", exc_info=False) # Avoid full traceback spam
             return None # Default to None on error
 
-    async def analyze_tweets(self, tweets: List[Dict[str, Any]]):
-        """Analyzes a batch of tweets and updates the DB with results."""
-        processed_count = 0
-        updated_count = 0
-        llm_tasks = [] # List to hold LLM analysis tasks
+    # Update analyze_tweets to use news_repo
+    async def analyze_tweets(self, tweets: List[Dict[str, Any]]) -> int:
+        """Analyzes a batch of tweets and updates their status in the database via NewsRepository."""
+        if not self.initialized or not self.news_repo or not self.llm_client:
+            logger.error("NewsAnalyzer not initialized or dependencies missing.")
+            return 0
 
-        # --- Stage 1: Initial Processing & Create LLM Tasks ---
-        analysis_data = {} # Store intermediate results by original_id
+        analyzed_count = 0
+        analysis_tasks = []
+
         for tweet in tweets:
-            original_id = tweet.get('original_tweet_id')
-            if not original_id:
-                logger.warning(f"Skipping tweet analysis: Missing original_tweet_id in {tweet}")
-                continue
+            # Schedule analysis for each tweet
+            task = asyncio.create_task(self._analyze_single_tweet(tweet))
+            analysis_tasks.append((task, tweet.get('id'))) # Track task and tweet db id
 
-            processed_count += 1
-            tweet_text = tweet.get('tweet_text', '')
+        results = []
+        try:
+            # Wait for tasks with a timeout
+            done, pending = await asyncio.wait(
+                [t for t, _ in analysis_tasks],
+                timeout=self.processing_timeout,
+                return_when=asyncio.ALL_COMPLETED
+            )
 
-            # Perform VADER sentiment analysis (keep for now)
-            vader_sentiment_score = None
-            if self.vader_analyzer:
-                 vs = self.vader_analyzer.polarity_scores(tweet_text)
-                 vader_sentiment_score = vs['compound'] # Use the compound score (-1 to 1)
+            if pending:
+                logger.warning(f"{len(pending)} analysis tasks timed out after {self.processing_timeout}s. Cancelling them.")
+                for task in pending:
+                    task.cancel()
 
-            # Keyword check removed/simplified as LLM handles significance now
-            # keyword_hits = [keyword for keyword in NEWS_KEYWORDS if keyword in tweet_text.lower()]
-            # keyword_score = min(1.0, 0.1 * len(keyword_hits)) if keyword_hits else 0.0
+            failed_updates = 0
+            for task, tweet_db_id in analysis_tasks:
+                if task in done and not task.cancelled():
+                    try:
+                        analysis_result = task.result()
+                        if analysis_result and tweet_db_id is not None:
+                            # Use news_repo to update
+                            update_successful = await self.news_repo.update_tweet_analysis(
+                                tweet_db_id=tweet_db_id,
+                                analysis_data=analysis_result,
+                                status="analyzed"
+                            )
+                            if update_successful:
+                                analyzed_count += 1
+                                logger.debug(f"Successfully analyzed and updated tweet DB ID: {tweet_db_id}")
+                            else:
+                                failed_updates += 1
+                                logger.error(f"Failed to update analysis status in DB for tweet ID: {tweet_db_id}")
+                        elif not analysis_result:
+                            # Analysis failed internally, log is in _analyze_single_tweet
+                            # Optionally mark as failed in DB?
+                            logger.warning(f"Analysis returned None/empty for tweet DB ID: {tweet_db_id}. Marking as analysis_failed.")
+                            # Use news_repo to update status to failed
+                            await self.news_repo.update_tweet_analysis(
+                                tweet_db_id=tweet_db_id,
+                                analysis_data=None,
+                                status="analysis_failed"
+                            )
+                            failed_updates += 1 # Count as failed if analysis didn't produce results
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing analysis result or updating DB for tweet ID {tweet_db_id}: {e}", exc_info=True)
+                        failed_updates += 1
+                        # Optionally mark as failed in DB?
+                        if tweet_db_id is not None:
+                            await self.news_repo.update_tweet_analysis(
+                                tweet_db_id=tweet_db_id,
+                                analysis_data=None,
+                                status="analysis_failed"
+                            )                            
+                elif task.cancelled():
+                    logger.warning(f"Analysis task for tweet ID {tweet_db_id} was cancelled (timeout).")
+                    # Optionally mark as failed/timeout in DB
+                    if tweet_db_id is not None:
+                       await self.news_repo.update_tweet_analysis(
+                            tweet_db_id=tweet_db_id,
+                            analysis_data=None,
+                            status="analysis_timeout"
+                        )
+                    failed_updates += 1
+                else: # Task is pending but somehow not cancelled? Should not happen with ALL_COMPLETED.
+                     logger.error(f"Task for tweet ID {tweet_db_id} finished in unexpected state.")
+                     failed_updates += 1
 
-            # Store initial results (placeholders for LLM output)
-            analysis_data[original_id] = {
-                'sentiment': vader_sentiment_score, # Store VADER score initially
-                'news_score': 0.0, # Default score, LLM will provide significance
-                'summary': None,   # LLM will provide
-                'llm_significance': None, # Store raw LLM significance
-                'llm_sentiment': None     # Store raw LLM sentiment
-            }
+            if failed_updates > 0:
+                 logger.warning(f"Completed analysis run with {failed_updates} failures/timeouts.")
 
-            # Create LLM analysis tasks if client is available
-            if self.groq_client:
-                # Pass analysis_data dict to the task runner
-                llm_tasks.append(self._run_single_llm_analysis(original_id, tweet_text, analysis_data[original_id]))
+        except asyncio.CancelledError:
+            logger.warning("analyze_tweets task itself was cancelled.")
+            # Cancel running sub-tasks if any? asyncio.wait should handle this.
+            return analyzed_count # Return count processed so far
+        except Exception as e:
+            logger.error(f"Unexpected error in analyze_tweets batch processing: {e}", exc_info=True)
+            # Mark remaining tweets as failed?
+            return analyzed_count
 
-        # --- Stage 2: Run LLM Analysis Concurrently ---
-        if llm_tasks:
-            logger.info(f"Running LLM analysis for {len(llm_tasks)} tweets...")
-            await asyncio.gather(*llm_tasks)
-            logger.info("LLM analysis batch completed.")
+        logger.info(f"Finished analysis batch. Successfully analyzed and updated: {analyzed_count} tweets.")
+        return analyzed_count
 
-        # --- Stage 3: Update Database ---
-        logger.info(f"Updating database for {processed_count} processed tweets...")
-        for original_id, results in analysis_data.items():
-            # Prepare final results for DB update
-            sentiment_to_store = results['sentiment'] # Use LLM sentiment if available, else VADER
-            news_score_to_store = results['news_score']
-            summary_to_store = results['summary']
-
-            try:
-                await self.db.update_tweet_analysis( # <--- Should be update_tweet_analysis
-                    original_tweet_id=original_id,
-                    sentiment=sentiment_to_store,
-                    news_score=news_score_to_store,
-                    summary=summary_to_store,
-                    llm_raw_analysis=json.dumps({ # Store raw LLM output too for debugging/future use
-                        'significance': results.get('llm_significance'),
-                        'sentiment': results.get('llm_sentiment')
-                    }) if results.get('llm_significance') else None
-                )
-                updated_count += 1
-                # logger.debug(f"Successfully updated analysis for tweet ID {original_id}") # DEBUG level
-            except Exception as e:
-                logger.error(f"Failed to update DB for tweet ID {original_id}: {e}", exc_info=False)
-
-
-        logger.info(f"Finished analyzing batch. Processed: {processed_count}, Updated DB: {updated_count}")
-
-
-    # Helper method to run LLM analysis for a single tweet and update results dict
-    async def _run_single_llm_analysis(self, original_id: str, text: str, results_dict: Dict):
-        """Runs the combined LLM analysis and updates the provided results dictionary."""
-        llm_result = await self._analyze_content_with_llm(text)
-
-        if llm_result:
-            # Store raw LLM results
-            results_dict['llm_significance'] = llm_result.get('significance')
-            results_dict['llm_sentiment'] = llm_result.get('sentiment')
-            results_dict['summary'] = llm_result.get('summary')
-
-            # --- Map LLM Significance to news_score ---
-            significance = results_dict['llm_significance']
-            if significance == "High":
-                results_dict['news_score'] = 1.0
-            elif significance == "Medium":
-                results_dict['news_score'] = 0.5
-            elif significance == "Low":
-                results_dict['news_score'] = 0.1
-            else:
-                 results_dict['news_score'] = 0.0 # Default if unexpected value
-
-            # --- Map LLM Sentiment to sentiment score (override VADER) ---
-            sentiment = results_dict['llm_sentiment']
-            if sentiment == "Positive":
-                results_dict['sentiment'] = 1.0
-            elif sentiment == "Negative":
-                results_dict['sentiment'] = -1.0
-            elif sentiment == "Neutral":
-                results_dict['sentiment'] = 0.0
-            # Keep VADER score if LLM sentiment is missing/invalid
-
-        # No need to return anything, modifies dict in place
-
+    # Update run_cycle to use news_repo
     async def run_cycle(self):
-        """Fetches unprocessed tweets, analyzes them, and updates the database."""
-        if not self.initialized or not self.db:
-            logger.error("NewsAnalyzer not initialized or DB unavailable. Skipping cycle.")
+        """Runs a single cycle of fetching unprocessed tweets, analyzing, and updating them."""
+        if not self.initialized or not self.news_repo:
+            logger.error("Cannot run analysis cycle: NewsAnalyzer not initialized or NewsRepository unavailable.")
             return
 
-        logger.info("Starting news analysis cycle...")
         try:
-            # Fetch tweets requiring analysis (limit by batch size)
-            tweets_to_analyze = await self.db.get_tweets_for_analysis(limit=self.analysis_batch_size)
+            logger.info(f"Starting news analysis cycle. Fetching up to {self.analysis_batch_size} unprocessed tweets...")
+            # Use news_repo to get tweets
+            unprocessed_tweets = await self.news_repo.get_unprocessed_news_tweets(limit=self.analysis_batch_size)
 
-            if not tweets_to_analyze:
-                logger.info("No new tweets found requiring analysis.")
+            if not unprocessed_tweets:
+                logger.info("No unprocessed news tweets found to analyze.")
                 return
 
-            logger.info(f"Fetched {len(tweets_to_analyze)} tweets for analysis.")
-
-            # Analyze the batch
-            await self.analyze_tweets(tweets_to_analyze)
-
-            logger.info("News analysis cycle finished.")
+            logger.info(f"Fetched {len(unprocessed_tweets)} tweets for analysis.")
+            
+            # Tweets from repo should already be dicts
+            processed_count = await self.analyze_tweets(unprocessed_tweets)
+            
+            logger.info(f"News analysis cycle finished. Processed {processed_count} tweets in this cycle.")
 
         except Exception as e:
-            logger.error(f"Error during news analysis cycle: {e}", exc_info=True)
+            logger.error(f"Error during news analysis cycle execution: {e}", exc_info=True)
 
-# --- Remove standalone run_analysis_cycle function --- 
-# async def run_analysis_cycle():
-#     """Runs a single cycle of fetching unprocessed tweets and analyzing them."""
-#     analyzer = NewsAnalyzer()
-#     if not analyzer.initialized or not analyzer.db:
-#         logger.error("Cannot run analysis cycle: NewsAnalyzer failed to initialize or DB unavailable.")
-#         return
-#
-#     try:
-#         logger.info("Starting news analysis cycle...")
-#         # Fetch a batch of unprocessed tweets
-#         # TODO: Make limit configurable?
-#         unprocessed_tweets = await analyzer.db.get_unprocessed_news_tweets(limit=100)
-#
-#         if unprocessed_tweets:
-#             logger.info(f"Fetched {len(unprocessed_tweets)} tweets for analysis.")
-#             await analyzer.analyze_tweets(unprocessed_tweets)
-#         else:
-#             logger.info("No unprocessed tweets found to analyze.")
-#
-#         logger.info("News analysis cycle finished.")
-#
-#     except Exception as e:
-#         logger.error(f"Error during news analysis cycle execution: {e}", exc_info=True)
+    # ... shutdown method (if any) might need news_repo.close() if repo holds connections ...
+    # Add a close method
+    async def close(self):
+        """Closes resources like the news repository connection."""
+        if self.news_repo:
+            try:
+                await self.news_repo.close()
+                logger.info("NewsRepository connection closed within NewsAnalyzer.")
+            except Exception as e:
+                logger.error(f"Error closing NewsRepository in NewsAnalyzer: {e}", exc_info=True)
+        # Close LLM client if needed
+        # if self.llm_client and hasattr(self.llm_client, 'close'):
+        #     await self.llm_client.close()
+        self.initialized = False
+        logger.info("NewsAnalyzer closed.")
 
 if __name__ == '__main__':
     # Basic test execution if run directly
