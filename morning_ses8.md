@@ -91,34 +91,38 @@ Significant progress has been made implementing automated tests to improve stabi
     2.  `src/db/news_repo.py`: News repository functionality
     3.  Integration tests between components
 
-## 6. Immediate Actions (Apr 30th - Post v132 Fixes)
+## 6. Immediate Actions (Apr 30th - Post v133 Fixes)
 
-Worker started cleanly, DB schema fixed. New errors found during task execution (SQL type error, Analyzer init check).
+Database schema fixed. New `AttributeError` found in `analyze_tweets`.
 
-1.  **DEPLOY:** Deploy fixes for the SQL type error (`news_repo.py`) and the analyzer init check (`news_analyzer.py`). **(Highest Priority)**
-2.  **VERIFY:** Monitor logs **EXTREMELY** closely after deployment:
-    *   Confirm `run_analysis_cycle_wrapper` runs *without* the `NewsAnalyzer not initialized` error AND processes tweets (or logs analysis errors if API/parsing fails).
-    *   Confirm `post_tweet_and_log` runs *without* the SQL `operator does not exist` error when checking for news.
-    *   Confirm overall stability through several cycles.
+1.  **DEPLOY:** Deploy fix for `AttributeError: 'NewsAnalyzer' object has no attribute '_analyze_single_tweet'` in `news_analyzer.py`. **(Highest Priority)**
+2.  **VERIFY:** Monitor logs **INTENSELY** after deployment:
+    *   Confirm `run_analysis_cycle_wrapper` fetches tweets AND attempts analysis (look for LLM calls or related logs/errors).
+    *   Confirm `post_tweet_and_log` runs without the `UndefinedColumn` error for `llm_analysis` when checking news.
+    *   Confirm overall stability and absence of *any* new errors.
 3.  **UPDATE:** Update this document (`morning_ses8.md`) with verification results.
-4.  **Develop:** Implement Admin UI for Content Management (Step 2.2 Frontend) - *once stability is fully confirmed*.
-5.  **Develop:** Begin Discord Posting (Step 3.1) - *once stability is fully confirmed*.
-6.  **Develop:** Implement News Analysis Admin Display (Step 2.3) - *once stability is fully confirmed*.
-7.  **Test:** Continue expanding test coverage.
-8.  **Cleanup:** Consider removing legacy test files.
+4.  **Develop:** Implement Admin UI (Step 2.2) - *once stability confirmed*.
+5.  **Develop:** Discord Posting (Step 3.1) - *once stability confirmed*.
+6.  **Develop:** News Analysis Admin Display (Step 2.3) - *once stability confirmed*.
+7.  **Refactor:** Address the TODO regarding `update_tweet_analysis` ID mismatch.
+8.  **Test:** Expand test coverage.
+9.  **Cleanup:** Archive/remove legacy tests.
 
 ## 7. Current Issues
 
-*   **~~`psycopg2.errors.UndefinedFunction: operator does not exist: text >= timestamp`~~ (SQL Type Error - Fixed Locally):** Occurred in `news_repo.get_recent_analyzed_news`. Fixed by adding explicit `::timestamptz` cast to `fetched_at`.
-*   **~~`ERROR - NewsAnalyzer not initialized or dependencies missing.`~~ (Logic Error - Fixed Locally):** Occurred in `news_analyzer.analyze_tweets` due to checking `self.llm_client` instead of `self.groq_client`. Fixed the check.
+*   **~~`AttributeError: 'NewsAnalyzer' object has no attribute '_analyze_single_tweet'`~~ (Method Call Error - Fixed Locally):** `analyze_tweets` was calling a non-existent method. Fixed to call `_analyze_content_with_llm`.
+*   **~~`psycopg2.errors.UndefinedColumn: column "llm_analysis" does not exist`~~ (Database Schema Mismatch - Fixed with ALTER TABLE):** Added `llm_analysis` column to live DB.
+*   **~~`psycopg2.errors.UndefinedFunction: operator does not exist: text >= timestamp`~~ (Resolved in v133):** Fixed by adding explicit cast.
+*   **~~`ERROR - NewsAnalyzer not initialized or dependencies missing.`~~ (Resolved in v133):** Fixed check in `analyze_tweets`.
 *   **~~`psycopg2.errors.UndefinedColumn: column "processed" does not exist`~~ (Resolved with ALTER TABLE):** Database schema mismatch fixed.
 *   **~~`AttributeError: 'Config' object has no attribute 'get'`~~ (Resolved in v132):** Fixed by using `getattr`.
 *   **~~`NameError` on Instance Creation~~ (Resolved in v131):** Fixed by adding missing imports.
 *   **~~`TypeError` on Instance Creation~~ (Resolved in v130):** Fixed by correcting arguments.
 *   **~~`NameError: ContentManager` in `news_analyzer.py`~~ (Resolved in v129):** Fixed by adding import.
-*   **~~`AttributeError` in `main.py`~~ (Believed Resolved in v128):** Fix was deployed, verification occurred during 06:00 post (no error there).
-*   **Twitter API Rate Limit:** Currently unknown status, likely still applies. Will become visible if news fetch/analysis runs successfully.
+*   **~~`AttributeError` in `main.py`~~ (Resolved in v128):** Fix confirmed effective.
+*   **Twitter API Rate Limit:** Status unknown. May become apparent now if analysis runs.
 *   **Legacy Tests:** Cluttering root directory.
+*   **TODO:** Refactor `NewsAnalyzer.analyze_tweets` / `NewsRepository.update_tweet_analysis` to correctly handle updating status for failed/timed-out analysis using `tweet_db_id` instead of `original_tweet_id`.
 
 ## 8. Guiding Principles (Reiteration)
 
