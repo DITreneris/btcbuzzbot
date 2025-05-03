@@ -251,21 +251,29 @@ class NewsAnalyzer:
 
         for tweet in tweets:
             tweet_db_id = tweet.get('id')
-            tweet_text = tweet.get('text') # Assuming 'text' column holds the tweet content
+            tweet_text = tweet.get('tweet_text')
+            original_tweet_id = tweet.get('original_tweet_id') # Get original ID
 
-            if not tweet_db_id or not tweet_text:
-                 logger.warning(f"Skipping tweet due to missing id or text: {tweet}")
+            # Ensure original_tweet_id is also present
+            if not tweet_db_id or not tweet_text or not original_tweet_id:
+                 logger.warning(f"Skipping tweet due to missing id, text, or original_id: {tweet}")
                  continue
                  
             # Schedule analysis for each tweet using the correct method
             task = asyncio.create_task(self._analyze_content_with_llm(tweet_text))
-            analysis_tasks.append((task, tweet_db_id)) # Track task and tweet db id
+            # Track task, tweet_db_id, and original_tweet_id
+            analysis_tasks.append((task, tweet_db_id, original_tweet_id))
 
         results = []
         try:
+            # Add check for empty tasks before waiting
+            if not analysis_tasks:
+                logger.info("No valid tweets found to create analysis tasks for.")
+                return analyzed_count # Return 0 or current count
+
             # Wait for tasks with a timeout
             done, pending = await asyncio.wait(
-                [t for t, _ in analysis_tasks],
+                [t for t, _, _ in analysis_tasks],
                 timeout=self.processing_timeout,
                 return_when=asyncio.ALL_COMPLETED
             )
@@ -276,61 +284,66 @@ class NewsAnalyzer:
                     task.cancel()
 
             failed_updates = 0
-            for task, tweet_db_id in analysis_tasks:
+            # Unpack original_tweet_id as well
+            for task, tweet_db_id, original_tweet_id in analysis_tasks:
                 if task in done and not task.cancelled():
                     try:
                         analysis_result = task.result()
-                        if analysis_result and tweet_db_id is not None:
-                            # Use news_repo to update
+                        # Pass original_tweet_id and status to the updated function
+                        if analysis_result and original_tweet_id is not None:
                             update_successful = await self.news_repo.update_tweet_analysis(
-                                tweet_db_id=tweet_db_id,
-                                analysis_data=analysis_result,
-                                status="analyzed"
+                                original_tweet_id=original_tweet_id, # Use original_tweet_id
+                                status="analyzed",
+                                analysis_data=analysis_result
                             )
                             if update_successful:
                                 analyzed_count += 1
-                                logger.debug(f"Successfully analyzed and updated tweet DB ID: {tweet_db_id}")
+                                logger.debug(f"Successfully analyzed and updated tweet original_id: {original_tweet_id} (DB ID: {tweet_db_id})")
                             else:
                                 failed_updates += 1
-                                logger.error(f"Failed to update analysis status in DB for tweet ID: {tweet_db_id}")
+                                logger.error(f"Failed to update analysis status in DB for tweet original_id: {original_tweet_id}")
                         elif not analysis_result:
-                            # Analysis failed internally, log is in _analyze_content_with_llm
-                            # Optionally mark as failed in DB?
-                            logger.warning(f"Analysis returned None/empty for tweet DB ID: {tweet_db_id}. Marking as analysis_failed.")
-                            # Use news_repo to update status to failed
-                            # Ensure update_tweet_analysis can handle tweet_db_id (not original_tweet_id)
-                            # We need to change update_tweet_analysis signature or logic here
-                            # For now, let's assume it needs original_tweet_id, which we don't have directly here
-                            # TODO: Refactor update call if needed, or fetch original_id first.
-                            # Temporarily commenting out the failed update:
-                            # await self.news_repo.update_tweet_analysis(
-                            #     original_tweet_id=???, # Need original_tweet_id here
-                            #     status="analysis_failed"
-                            # )
-                            failed_updates += 1 # Count as failed if analysis didn't produce results
+                            # LLM Analysis failed internally
+                            logger.warning(f"Analysis returned None/empty for tweet original_id: {original_tweet_id}. Marking as analysis_failed.")
+                            if original_tweet_id is not None:
+                                await self.news_repo.update_tweet_analysis(
+                                    original_tweet_id=original_tweet_id, # Use original_tweet_id
+                                    status="analysis_failed",
+                                    analysis_data=None # Ensure no data is passed
+                                )
+                            failed_updates += 1 
                         
                     except Exception as e:
-                        logger.error(f"Error processing analysis result or updating DB for tweet ID {tweet_db_id}: {e}", exc_info=True)
+                        # Error during result processing or DB update
+                        logger.error(f"Error processing result or updating DB for tweet original_id {original_tweet_id}: {e}", exc_info=True)
                         failed_updates += 1
-                        # Optionally mark as failed in DB?
-                        if tweet_db_id is not None:
+                        if original_tweet_id is not None:
                             await self.news_repo.update_tweet_analysis(
-                                tweet_db_id=tweet_db_id,
+                                original_tweet_id=original_tweet_id, # Use original_tweet_id
+                                status="analysis_failed", # Mark as failed
                                 analysis_data=None,
-                                status="analysis_failed"
+                                error_message=str(e) # Optionally pass error string
                             )                            
                 elif task.cancelled():
-                    logger.warning(f"Analysis task for tweet ID {tweet_db_id} was cancelled (timeout).")
-                    # Optionally mark as failed/timeout in DB
-                    if tweet_db_id is not None:
+                    # Task timed out
+                    logger.warning(f"Analysis task for tweet original_id {original_tweet_id} was cancelled (timeout).")
+                    if original_tweet_id is not None:
                        await self.news_repo.update_tweet_analysis(
-                            tweet_db_id=tweet_db_id,
-                            analysis_data=None,
-                            status="analysis_timeout"
+                            original_tweet_id=original_tweet_id, # Use original_tweet_id
+                            status="analysis_timeout", # Mark as timeout
+                            analysis_data=None
                         )
                     failed_updates += 1
-                else: # Task is pending but somehow not cancelled? Should not happen with ALL_COMPLETED.
-                     logger.error(f"Task for tweet ID {tweet_db_id} finished in unexpected state.")
+                else: 
+                     # Should not happen
+                     logger.error(f"Task for tweet original_id {original_tweet_id} finished in unexpected state.")
+                     if original_tweet_id is not None: # Mark as failed just in case
+                        await self.news_repo.update_tweet_analysis(
+                            original_tweet_id=original_tweet_id,
+                            status="analysis_failed",
+                            analysis_data=None,
+                            error_message="Unexpected task state"
+                        )
                      failed_updates += 1
 
             if failed_updates > 0:

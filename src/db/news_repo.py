@@ -253,42 +253,43 @@ class NewsRepository:
     async def update_tweet_analysis(
         self,
         original_tweet_id: str,
-        sentiment_score: Optional[float] = None,
-        sentiment_label: Optional[str] = None,
-        keywords: Optional[str] = None, # Assuming comma-separated string
-        summary: Optional[str] = None,
-        llm_analysis: Optional[Dict[str, Any]] = None # Expecting dict for JSON
+        status: str, # Add status parameter ('analyzed', 'analysis_failed', 'analysis_timeout')
+        analysis_data: Optional[Dict[str, Any]] = None, # Renamed llm_analysis for clarity
+        error_message: Optional[str] = None # Optionally store error details
     ):
-        """Update the analysis fields for a specific tweet, marking it processed."""
+        """Update analysis fields and processing status based on provided status."""
         if not original_tweet_id:
+            logger.warning("Attempted to update analysis with missing original_tweet_id.")
             return False
 
         update_fields = []
         params = []
 
-        if sentiment_score is not None:
-            update_fields.append("sentiment_score = %s" if self.is_postgres else "sentiment_score = ?")
-            params.append(sentiment_score)
-        if sentiment_label is not None:
-            update_fields.append("sentiment_label = %s" if self.is_postgres else "sentiment_label = ?")
-            params.append(sentiment_label)
-        if keywords is not None:
-            update_fields.append("keywords = %s" if self.is_postgres else "keywords = ?")
-            params.append(keywords)
-        if summary is not None:
-            update_fields.append("summary = %s" if self.is_postgres else "summary = ?")
-            params.append(summary)
-        if llm_analysis is not None:
+        # Set llm_analysis field only if status is 'analyzed' and data is present
+        if status == "analyzed" and analysis_data is not None:
             update_fields.append("llm_analysis = %s" if self.is_postgres else "llm_analysis = ?")
-            params.append(json.dumps(llm_analysis)) # Store as JSON string
-        
+            params.append(json.dumps(analysis_data))
+            update_fields.append("processed = TRUE" if self.is_postgres else "processed = 1")
+        elif status in ["analysis_failed", "analysis_timeout"]:
+            # Mark as processed=TRUE even on failure/timeout to avoid reprocessing
+            update_fields.append("processed = TRUE" if self.is_postgres else "processed = 1")
+            # Optionally store an error or status marker if schema allows
+            # For now, just setting processed=TRUE
+            # If error_message and a column exists:
+            # update_fields.append("error_info = %s" if self.is_postgres else "error_info = ?")
+            # params.append(error_message)
+            logger.info(f"Marking tweet {original_tweet_id} as processed with status: {status}")
+        else:
+             logger.warning(f"Invalid status '{status}' provided for tweet {original_tweet_id}. Not updating.")
+             return False # Invalid status
+
         # Always mark as processed and update timestamp
-        update_fields.append("processed = TRUE" if self.is_postgres else "processed = 1")
-        # analysis_timestamp field doesn't exist in schema? Removing for now.
-        # update_fields.append("analysis_timestamp = NOW()" if self.is_postgres else "analysis_timestamp = datetime('now')")
+        # update_fields.append("processed = TRUE" if self.is_postgres else "processed = 1")
+        # --- End removal ---
 
         if not update_fields:
-            logger.warning(f"No analysis fields provided to update for tweet {original_tweet_id}")
+            # This case should ideally not be reached with the new logic
+            logger.warning(f"No fields to update for tweet {original_tweet_id} with status {status}.")
             return False
 
         params.append(original_tweet_id) # Add the ID for the WHERE clause
@@ -304,6 +305,7 @@ class NewsRepository:
             """
 
         try:
+            rows_affected = 0
             if self.is_postgres:
                 conn = self._get_postgres_connection()
                 cursor = conn.cursor()
@@ -313,20 +315,19 @@ class NewsRepository:
                 cursor.close()
                 conn.close()
             else:
-                # SQLite implementation
                 async with aiosqlite.connect(self.db_path) as db:
                     cursor = await db.execute(sql_query, tuple(params))
                     await db.commit()
                     rows_affected = cursor.rowcount
             
             if rows_affected > 0:
-                logger.debug(f"Successfully updated analysis for tweet ID {original_tweet_id}")
+                logger.debug(f"Successfully updated status for tweet {original_tweet_id} to {status}.")
                 return True
             else:
-                logger.warning(f"No tweet found with original_tweet_id {original_tweet_id} to update analysis.")
+                logger.warning(f"No tweet found with original_tweet_id {original_tweet_id} to update status.")
                 return False
         except Exception as e:
-            logger.error(f"Error updating tweet analysis for {original_tweet_id}: {e}", exc_info=True)
+            logger.error(f"Error updating analysis status for tweet {original_tweet_id}: {e}", exc_info=True)
             return False
 
     # Add other news-related methods if necessary, e.g., getting analyzed tweets for display 
