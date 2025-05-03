@@ -183,10 +183,10 @@ class NewsRepository:
         try:
             if self.is_postgres:
                 sql = """
-                SELECT original_tweet_id, llm_raw_analysis 
+                SELECT original_tweet_id, llm_analysis 
                 FROM news_tweets 
                 WHERE processed = TRUE 
-                AND fetched_at >= NOW() - INTERVAL '%s hours'
+                AND fetched_at::timestamptz >= NOW() - INTERVAL '%s hours'
                 ORDER BY fetched_at DESC;
                 """
                 conn = self._get_postgres_connection()
@@ -198,7 +198,7 @@ class NewsRepository:
                 tweets = [dict(row) for row in rows]
             else:
                 sql = """
-                SELECT original_tweet_id, llm_raw_analysis 
+                SELECT original_tweet_id, llm_analysis 
                 FROM news_tweets 
                 WHERE processed = 1 
                 AND datetime(fetched_at) >= datetime('now', ? || ' hours')

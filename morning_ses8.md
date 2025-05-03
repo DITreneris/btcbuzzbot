@@ -4,24 +4,15 @@
 
 Confirm application stability after recent scheduler fixes, verify the updated 6-time tweet schedule (06:00, 08:00, 12:00, 16:00, 20:00, 22:00 UTC), decide on the news analysis strategy, and establish a plan for introducing automated tests to improve robustness and prevent regressions.
 
-## 2. Current Status Recap (as of Apr 30th, ~11:30 UTC)
+## 2. Current Status Recap (as of Apr 30th, ~11:00 UTC)
 
-*   **Scheduler Stability:** Confirmed Stable after ~72h monitoring. The worker dyno is running correctly using `src/scheduler_cli.py` and `AsyncIOScheduler`. The `reschedule_tweet_jobs` task runs periodically as expected.
-*   **Posting Logic:** Partially Working & Unstable. The scheduled task (`post_tweet_and_log`) correctly calls `main.post_btc_update`. Posts occur reliably at all 6 scheduled times.
-    *   **NEW ISSUE (Apr 30th):** An `AttributeError: 'Database' object has no attribute 'get_recent_analyzed_news'` occurs during the news fetching step within `post_btc_update`. This indicates the `NewsRepository` refactoring was not correctly implemented or missed in `src/main.py`.
-    *   **Fallback Active:** The app correctly falls back to posting quotes/jokes due to the news fetching error.
-*   **Schedule Update:**
-    *   **Verified:** The schedule configuration in the database includes 6 posting times: `06:00,08:00,12:00,16:00,20:00,22:00`.
-    *   **Verified:** The `reschedule_tweet_jobs` task successfully loads the 6-time schedule and configures the jobs.
-    *   **Verified:** Posts occurred successfully at all scheduled times (using fallback content when news fetching failed).
-*   **News Fetching:**
-    *   **Error:** Currently broken due to the `AttributeError` mentioned above. The application is not attempting to fetch news tweets.
-    *   **Rate Limit:** Twitter API v2 free tier monthly cap likely still exceeded or close to reset. Fallback content (quotes/jokes) is being used due to the `AttributeError`.
-*   **Database Refactoring:**
-    *   `ContentRepository` extracted from `Database` and fully implemented.
-    *   **Incomplete:** News-related methods extracted to `src/db/news_repo.py`. Consumers (`news_fetcher.py`, `news_analyzer.py`) were likely updated, but `src/main.py` was missed *in the currently deployed version*, causing the `AttributeError`. **(Fix confirmed present in local code, awaiting deployment)**.
-*   **Content Management:** Backend methods exist in `ContentRepository`. Initial quotes/jokes lists trimmed. Admin UI not yet implemented.
-*   **Automated Testing:** Initial test suite implemented, focused on core components. Needs expansion.
+*   **Scheduler Stability:** **Confirmed Stable** after deployment v132. Worker started cleanly without initialization errors.
+*   **Posting Logic:** Status **Pending Verification**. Need to observe the next scheduled post (12:00 UTC) to confirm the fix for the `AttributeError` in `main.py` is effective.
+*   **News Fetching/Analysis:** Status **Pending Verification**. Need to observe the next `run_analysis_cycle_wrapper` task (~11:17 UTC) to confirm it runs without error.
+*   **Schedule Update:** Verified.
+*   **Database Refactoring:** Believed Complete. Verification pending successful execution of posting/analysis tasks.
+*   **Content Management:** Backend OK, UI Needed.
+*   **Automated Testing:** Needs expansion.
 
 ## 3. Review of Recent Fixes (Apr 27th)
 
@@ -100,29 +91,33 @@ Significant progress has been made implementing automated tests to improve stabi
     2.  `src/db/news_repo.py`: News repository functionality
     3.  Integration tests between components
 
-## 6. Immediate Actions (Apr 30th - Updated Again^2)
+## 6. Immediate Actions (Apr 30th - Post v132 Fixes)
 
-Worker crashed after deployment v131 due to `AttributeError` during `NewsAnalyzer` config access.
+Worker started cleanly, DB schema fixed. New errors found during task execution (SQL type error, Analyzer init check).
 
-1.  **DEPLOY:** Deploy the fix for the `AttributeError` in `src/news_analyzer.py` (using `getattr` to access config attributes). **(Highest Priority)**
-2.  **Verify:** Monitor logs *EXTRA* closely after deployment to confirm:
-    *   Worker starts without ANY initialization errors (`AttributeError`, `NameError`, `TypeError`).
-    *   News analysis cycles run without error (check logs for this specifically).
-    *   The original `AttributeError` in `main.py` during tweet posting is gone.
-3.  **Develop:** Implement the Admin UI for Content Management (Step 2.2 Frontend) - *once stability confirmed*.
-4.  **Develop:** Begin implementing Discord Posting via Webhooks (Step 3.1) - *once stability confirmed*.
-5.  **Develop:** Implement the News Analysis Admin Display (Step 2.3) - *once stability confirmed*.
-6.  **Test:** Continue expanding test coverage.
-7.  **Cleanup:** Consider removing legacy test files or moving them to an 'archive' directory.
+1.  **DEPLOY:** Deploy fixes for the SQL type error (`news_repo.py`) and the analyzer init check (`news_analyzer.py`). **(Highest Priority)**
+2.  **VERIFY:** Monitor logs **EXTREMELY** closely after deployment:
+    *   Confirm `run_analysis_cycle_wrapper` runs *without* the `NewsAnalyzer not initialized` error AND processes tweets (or logs analysis errors if API/parsing fails).
+    *   Confirm `post_tweet_and_log` runs *without* the SQL `operator does not exist` error when checking for news.
+    *   Confirm overall stability through several cycles.
+3.  **UPDATE:** Update this document (`morning_ses8.md`) with verification results.
+4.  **Develop:** Implement Admin UI for Content Management (Step 2.2 Frontend) - *once stability is fully confirmed*.
+5.  **Develop:** Begin Discord Posting (Step 3.1) - *once stability is fully confirmed*.
+6.  **Develop:** Implement News Analysis Admin Display (Step 2.3) - *once stability is fully confirmed*.
+7.  **Test:** Continue expanding test coverage.
+8.  **Cleanup:** Consider removing legacy test files.
 
 ## 7. Current Issues
 
-*   **`AttributeError: 'Config' object has no attribute 'get'` (NEW - Post-Deployment v131):** Worker initialization failed again because `news_analyzer.py` was trying to use `config.get(...)` which doesn't exist. It should access attributes directly (e.g., `config.groq_model`). **Priority: Critical (Fix ready locally, needs deployment).**
-*   **`NameError` on Instance Creation (Fixed Locally):** Missing imports (`Config` in `news_analyzer.py`, `ContentManager` in `scheduler_engine.py`). Fix included in v131 deployment, masked by `AttributeError`.
-*   **`TypeError` on Instance Creation (Fixed Locally):** TypeErrors from passing `db_instance` in `scheduler_tasks.py`/`engine.py`. Fix included in v130 deployment.
-*   **`NameError: ContentManager` in `news_analyzer.py` (Fixed Locally):** Missing import in `news_analyzer.py`. Fix included in v129 deployment.
-*   **`AttributeError` in `main.py` (Fixed Locally):** Original error calling `db.get_recent_analyzed_news`. Fix included in v128 deployment.
-*   **Twitter API Rate Limit:** Masked by crashes.
+*   **~~`psycopg2.errors.UndefinedFunction: operator does not exist: text >= timestamp`~~ (SQL Type Error - Fixed Locally):** Occurred in `news_repo.get_recent_analyzed_news`. Fixed by adding explicit `::timestamptz` cast to `fetched_at`.
+*   **~~`ERROR - NewsAnalyzer not initialized or dependencies missing.`~~ (Logic Error - Fixed Locally):** Occurred in `news_analyzer.analyze_tweets` due to checking `self.llm_client` instead of `self.groq_client`. Fixed the check.
+*   **~~`psycopg2.errors.UndefinedColumn: column "processed" does not exist`~~ (Resolved with ALTER TABLE):** Database schema mismatch fixed.
+*   **~~`AttributeError: 'Config' object has no attribute 'get'`~~ (Resolved in v132):** Fixed by using `getattr`.
+*   **~~`NameError` on Instance Creation~~ (Resolved in v131):** Fixed by adding missing imports.
+*   **~~`TypeError` on Instance Creation~~ (Resolved in v130):** Fixed by correcting arguments.
+*   **~~`NameError: ContentManager` in `news_analyzer.py`~~ (Resolved in v129):** Fixed by adding import.
+*   **~~`AttributeError` in `main.py`~~ (Believed Resolved in v128):** Fix was deployed, verification occurred during 06:00 post (no error there).
+*   **Twitter API Rate Limit:** Currently unknown status, likely still applies. Will become visible if news fetch/analysis runs successfully.
 *   **Legacy Tests:** Cluttering root directory.
 
 ## 8. Guiding Principles (Reiteration)
@@ -141,7 +136,7 @@ Goals for this phase involve extending the bot's reach to other platforms and en
 *   **Step 3.1: Implement Discord Posting (via Webhooks)**
     *   **Goal:** Post the same BTC update messages to a designated Discord channel.
     *   **Approach:** Use Discord Webhooks for simplicity in sending messages without needing a full bot client initially.
-    *   **Status:** Not Started. Blocked by deployment of the `AttributeError` fix (Step 1 in Immediate Actions).
+    *   **Status:** Not Started. Blocked pending stability verification.
     *   **Tasks:**
         1.  Create a Discord Webhook URL for the target channel.
         2.  Add `DISCORD_WEBHOOK_URL` and `ENABLE_DISCORD_POSTING` to configuration (`config.py`, `.env`, Heroku).

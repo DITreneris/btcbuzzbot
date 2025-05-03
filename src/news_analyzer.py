@@ -242,7 +242,7 @@ class NewsAnalyzer:
     # Update analyze_tweets to use news_repo
     async def analyze_tweets(self, tweets: List[Dict[str, Any]]) -> int:
         """Analyzes a batch of tweets and updates their status in the database via NewsRepository."""
-        if not self.initialized or not self.news_repo or not self.llm_client:
+        if not self.initialized or not self.news_repo or not self.groq_client:
             logger.error("NewsAnalyzer not initialized or dependencies missing.")
             return 0
 
