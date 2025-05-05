@@ -109,7 +109,8 @@ class Config:
         self.enable_discord_posting = os.environ.get('ENABLE_DISCORD_POSTING', 'False').lower() == 'true'
         self.discord_webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
 
-        self._validate_config()
+        # Call the correct validation method
+        self.validate()
 
     def validate(self):
         """Validate the configuration"""
