@@ -12,6 +12,7 @@ from src.db.content_repo import ContentRepository
 from src.twitter_client import TwitterClient
 from src.content_manager import ContentManager
 from src.config import Config
+from src.discord_poster import send_discord_message
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,20 @@ async def post_btc_update(config=None, scheduled_time_str=None):
                     price_change=price_change,
                     content_type=content_type
                 )
+                
+                # --- Add Discord Posting Logic ---
+                if config.enable_discord_posting:
+                    discord_webhook_url = config.discord_webhook_url
+                    if discord_webhook_url:
+                        logger.info("Discord posting enabled. Sending message...")
+                        # Send the same text as the tweet
+                        # Ensure we pass the tweet_text, not the tweet object
+                        discord_success = await send_discord_message(discord_webhook_url, tweet_text)
+                        if discord_success:
+                             logger.info("Successfully posted message to Discord.")
+                    else:
+                        logger.warning("Discord posting enabled, but DISCORD_WEBHOOK_URL is not set.")
+                # --- End Discord Posting Logic ---
                 
                 logger.info(f"Successfully posted tweet: {tweet_id}")
                 return tweet_id
