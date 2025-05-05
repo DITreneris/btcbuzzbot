@@ -29,46 +29,6 @@
         </nav>
         <p>Welcome to the admin dashboard. Use the navigation above to manage different parts of the application.</p>
         <!-- Dashboard widgets or summaries can go here later -->
-        
-        <!-- Recent News Analysis Section -->
-        <div class="content-section" style="margin-top: 30px;">
-            <h2>Recent News Analysis (Last 24 Hours)</h2>
-            {% if analyzed_news %}
-            <table style="table-layout: fixed; width: 100%;">
-                 <thead>
-                    <tr>
-                        <th style="width: 15%;">Tweet ID</th>
-                        <th style="width: 10%;">Significance</th>
-                        <th style="width: 10%;">Sentiment</th>
-                        <th style="width: 55%;">Summary</th>
-                        <th style="width: 10%;">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for news_item in analyzed_news %}
-                    <tr>
-                        <td style="word-wrap: break-word;">
-                           <!-- Link to original tweet -->
-                           <a href="https://twitter.com/i/web/status/{{ news_item.original_tweet_id }}" target="_blank">{{ news_item.original_tweet_id }}</a>
-                        </td>
-                        {% if news_item.analysis and not news_item.analysis.get('error') %}
-                            <td>{{ news_item.analysis.significance }}</td>
-                            <td>{{ news_item.analysis.sentiment }}</td>
-                            <td>{{ news_item.analysis.summary }}</td>
-                            <td>Analyzed</td>
-                        {% else %}
-                            <td colspan="3" style="color: red; font-style: italic;">Error processing analysis</td>
-                            <td>{{ news_item.analysis.get('error', 'Unknown Error') }}</td>
-                        {% endif %}
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-             {% else %}
-            <p>No recently analyzed news tweets found.</p>
-            {% endif %}
-        </div>
-        
     </div>
 </body>
 </html> 

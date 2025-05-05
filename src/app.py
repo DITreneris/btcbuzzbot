@@ -3,7 +3,6 @@ import os
 import logging
 import secrets # For session secret key
 from functools import wraps
-import json # Need json for parsing
 
 from flask import (
     Flask, request, jsonify, render_template, 
@@ -21,7 +20,6 @@ from src.init import get_shared_instance # Import the getter
 # Get shared instances (using the getter)
 # We need ContentRepository for admin content management
 content_repo = get_shared_instance('ContentRepository')
-news_repo = get_shared_instance('NewsRepository') # Get NewsRepository
 # Assuming other instances might be needed later
 # db_instance = get_shared_instance('Database')
 # content_manager = get_shared_instance('ContentManager') 
@@ -61,50 +59,9 @@ def logout():
 
 @app.route('/admin')
 @login_required
-async def admin_dashboard(): # Make route async
+def admin_dashboard():
     # Simple placeholder dashboard
-    # Now fetch and display recent news analysis
-    analyzed_news = []
-    try:
-        # Fetch recent analyzed tweets (e.g., last 24 hours)
-        # The get_recent_analyzed_news function should exist in news_repo
-        raw_news = await news_repo.get_recent_analyzed_news(hours_limit=24) 
-        
-        for item in raw_news:
-            parsed_analysis = None
-            raw_analysis_json = item.get('llm_analysis')
-            if raw_analysis_json:
-                try:
-                    # Check if it's already a dict (from SQLite/psycopg2 RealDictCursor)
-                    if isinstance(raw_analysis_json, dict):
-                        parsed_analysis = raw_analysis_json
-                    else:
-                        parsed_analysis = json.loads(raw_analysis_json)
-                    
-                    # Basic validation of expected keys
-                    if not all(k in parsed_analysis for k in ["significance", "sentiment", "summary"]):
-                        logger.warning(f"Parsed analysis for tweet {item.get('original_tweet_id')} missing keys: {parsed_analysis}")
-                        parsed_analysis["error"] = "Missing Keys"
-                        
-                except json.JSONDecodeError as json_err:
-                    logger.error(f"Failed to parse llm_analysis JSON for tweet {item.get('original_tweet_id')}: {json_err}. Data: {raw_analysis_json}")
-                    parsed_analysis = {"error": "Invalid JSON"}
-                except Exception as parse_err:
-                     logger.error(f"Unexpected error parsing llm_analysis for tweet {item.get('original_tweet_id')}: {parse_err}")
-                     parsed_analysis = {"error": "Parsing Error"}
-            else:
-                 parsed_analysis = {"error": "No Analysis Data"}
-
-            analyzed_news.append({
-                'original_tweet_id': item.get('original_tweet_id', 'N/A'),
-                'analysis': parsed_analysis
-            })
-            
-    except Exception as e:
-        logger.error(f"Error fetching recent analyzed news for admin dashboard: {e}", exc_info=True)
-        flash("Failed to load recent news analysis data.", "error")
-        
-    return render_template('admin_dashboard.html', analyzed_news=analyzed_news)
+    return render_template('admin_dashboard.html') # Assuming admin_dashboard.html exists
 
 # New Routes for Content Management
 @app.route('/admin/content', methods=['GET'])
