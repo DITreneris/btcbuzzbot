@@ -245,6 +245,8 @@ async def reschedule_tweet_jobs(scheduler):
     if db_instance:
         try:
             schedule_config_str = await db_instance.get_scheduler_config()
+            # Add INFO log to see what schedule string is actually retrieved
+            logger.info(f"Reschedule task: Retrieved schedule string from DB: '{schedule_config_str}'")
         except Exception as e:
             logger.error(f"Reschedule task failed to get config from DB: {e}", exc_info=True)
             return # Stop if we can't get config

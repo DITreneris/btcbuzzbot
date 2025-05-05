@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List
 from dotenv import load_dotenv
+import secrets
 
 # Setup logging
 def configure_logging():
@@ -84,6 +85,32 @@ class Config:
         self.logger.info(f"Database: {'PostgreSQL' if self.use_postgres else 'SQLite'}")
         self.logger.info(f"Scheduled posting times: {', '.join(self.post_times)} ({self.timezone})")
         
+        # News Fetcher Config
+        self.news_fetch_max_results = int(os.environ.get('NEWS_FETCH_MAX_RESULTS', '10'))
+        
+        # LLM Config (Groq Example)
+        self.llm_analyze_temp = float(os.environ.get('LLM_ANALYZE_TEMP', '0.2'))
+        self.llm_analyze_max_tokens = int(os.environ.get('LLM_ANALYZE_MAX_TOKENS', '150'))
+        self.news_analysis_batch_size = int(os.environ.get('NEWS_ANALYSIS_BATCH_SIZE', '30'))
+        self.news_processing_timeout_seconds = int(os.environ.get('NEWS_PROCESSING_TIMEOUT_SECONDS', '300'))
+
+        # Duplicate Post Check Config
+        self.duplicate_post_check_minutes = int(os.environ.get('DUPLICATE_POST_CHECK_MINUTES', '5'))
+        
+        # Content Reuse Config
+        self.content_reuse_days = int(os.environ.get('CONTENT_REUSE_DAYS', '7'))
+        
+        # Web Admin Config
+        self.admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
+        self.admin_password_hash = os.environ.get('ADMIN_PASSWORD_HASH') # Store hash, not plain password
+        self.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16)) # Flask session key
+        
+        # Add Discord Config Variables
+        self.enable_discord_posting = os.environ.get('ENABLE_DISCORD_POSTING', 'False').lower() == 'true'
+        self.discord_webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
+
+        self._validate_config()
+
     def validate(self):
         """Validate the configuration"""
         errors = []
@@ -120,7 +147,19 @@ class Config:
             "post_times": self.post_times,
             "timezone": self.timezone,
             "coingecko_api_url": self.coingecko_api_url,
-            "coingecko_retry_limit": self.coingecko_retry_limit
+            "coingecko_retry_limit": self.coingecko_retry_limit,
+            "news_fetch_max_results": self.news_fetch_max_results,
+            "llm_analyze_temp": self.llm_analyze_temp,
+            "llm_analyze_max_tokens": self.llm_analyze_max_tokens,
+            "news_analysis_batch_size": self.news_analysis_batch_size,
+            "news_processing_timeout_seconds": self.news_processing_timeout_seconds,
+            "duplicate_post_check_minutes": self.duplicate_post_check_minutes,
+            "content_reuse_days": self.content_reuse_days,
+            "admin_username": self.admin_username,
+            "admin_password_hash": "***REDACTED***",
+            "secret_key": self.secret_key,
+            "enable_discord_posting": self.enable_discord_posting,
+            "discord_webhook_url": self.discord_webhook_url
         }
         
     def __str__(self) -> str:
