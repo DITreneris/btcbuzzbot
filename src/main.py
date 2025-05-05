@@ -213,7 +213,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
                         logger.info("Discord posting enabled. Sending message...")
                         # Send the same text as the tweet
                         # Ensure we pass the tweet_text, not the tweet object
-                        discord_success = await send_discord_message(discord_webhook_url, tweet_text)
+                        discord_success = await send_discord_message(discord_webhook_url, tweet)
                         if discord_success:
                              logger.info("Successfully posted message to Discord.")
                     else:
