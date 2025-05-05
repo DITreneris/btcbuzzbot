@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .container { max-width: 1000px; margin: auto; }
+        h1 { color: #333; }
+        nav { background-color: #f8f8f8; padding: 10px; margin-bottom: 20px; border: 1px solid #e7e7e7; }
+        nav a { margin-right: 15px; text-decoration: none; color: #777; }
+        nav a:hover { color: #333; }
+        nav form { display: inline; }
+         button { padding: 8px 15px; background-color: #5cb85c; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button.delete { background-color: #d9534f; margin-left: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Admin Dashboard</h1>
+        <nav>
+            <a href="{{ url_for('admin_dashboard') }}">Dashboard</a> 
+            <a href="{{ url_for('admin_manage_content') }}">Manage Content</a>
+            <!-- Add other admin links here -->
+            <form action="{{ url_for('logout') }}" method="post" style="display: inline; float: right;">
+                 <button type="submit" class="delete" style="background-color: #f0ad4e;">Logout</button>
+            </form>
+        </nav>
+        <p>Welcome to the admin dashboard. Use the navigation above to manage different parts of the application.</p>
+        <!-- Dashboard widgets or summaries can go here later -->
+    </div>
+</body>
+</html> 

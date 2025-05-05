@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Manage Content</title>
+    <!-- Basic Styling (Consider using Bootstrap or Tailwind later) -->
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .container { max-width: 1000px; margin: auto; }
+        h1, h2 { color: #333; }
+        .content-section { margin-bottom: 30px; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        form { margin-top: 10px; }
+        label { display: block; margin-bottom: 5px; }
+        input[type=text], textarea { width: 95%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; }
+        button { padding: 8px 15px; background-color: #5cb85c; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button.delete { background-color: #d9534f; margin-left: 5px; }
+        .flash { padding: 10px; margin-bottom: 15px; border-radius: 4px; }
+        .flash.success { background-color: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
+        .flash.warning { background-color: #fcf8e3; color: #8a6d3b; border: 1px solid #faebcc; }
+        .flash.error { background-color: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
+        nav { background-color: #f8f8f8; padding: 10px; margin-bottom: 20px; border: 1px solid #e7e7e7; }
+        nav a { margin-right: 15px; text-decoration: none; color: #777; }
+        nav a:hover { color: #333; }
+        nav form { display: inline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Admin Panel</h1>
+
+        <nav>
+            <a href="{{ url_for('admin_dashboard') }}">Dashboard</a> 
+            <a href="{{ url_for('admin_manage_content') }}">Manage Content</a>
+            <!-- Add other admin links here -->
+            <form action="{{ url_for('logout') }}" method="post" style="display: inline; float: right;">
+                 <button type="submit" class="delete" style="background-color: #f0ad4e;">Logout</button>
+            </form>
+        </nav>
+
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <h2>Manage Content (Quotes & Jokes)</h2>
+
+        <!-- Add Quote Section -->
+        <div class="content-section">
+            <h3>Add New Quote</h3>
+            <form action="{{ url_for('admin_add_content') }}" method="post">
+                <input type="hidden" name="content_type" value="quote">
+                <label for="quote_text">Quote Text:</label>
+                <textarea id="quote_text" name="text" rows="3" required></textarea>
+                <button type="submit">Add Quote</button>
+            </form>
+        </div>
+
+        <!-- Add Joke Section -->
+        <div class="content-section">
+            <h3>Add New Joke</h3>
+            <form action="{{ url_for('admin_add_content') }}" method="post">
+                <input type="hidden" name="content_type" value="joke">
+                <label for="joke_text">Joke Text:</label>
+                <textarea id="joke_text" name="text" rows="3" required></textarea>
+                <button type="submit">Add Joke</button>
+            </form>
+        </div>
+
+        <!-- Display Quotes -->
+        <div class="content-section">
+            <h3>Existing Quotes</h3>
+            {% if quotes %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Text</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for quote in quotes %}
+                    <tr>
+                        <td>{{ quote.id }}</td>
+                        <td>{{ quote.text }}</td>
+                        <td>
+                            <form action="{{ url_for('admin_delete_content', content_type='quote', item_id=quote.id) }}" method="post" style="display: inline;">
+                                <button type="submit" class="delete">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p>No quotes found.</p>
+            {% endif %}
+        </div>
+
+        <!-- Display Jokes -->
+        <div class="content-section">
+            <h3>Existing Jokes</h3>
+             {% if jokes %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Text</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for joke in jokes %}
+                    <tr>
+                        <td>{{ joke.id }}</td>
+                        <td>{{ joke.text }}</td>
+                        <td>
+                             <form action="{{ url_for('admin_delete_content', content_type='joke', item_id=joke.id) }}" method="post" style="display: inline;">
+                                <button type="submit" class="delete">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+             {% else %}
+            <p>No jokes found.</p>
+            {% endif %}
+        </div>
+
+    </div>
+</body>
+</html> 
