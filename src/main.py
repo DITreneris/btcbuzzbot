@@ -117,72 +117,67 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             
             # --- Determine Tweet Content based on Schedule ---
             tweet = ""
-            content_type = "price_only"
+            content_type = "price_only" # Default, will be updated
+            use_fallback_content = True # Assume fallback unless significant news found
 
-            if scheduled_time_str == '16:00':
-                logger.info("Scheduled time is 16:00 UTC. Generating price-only tweet.")
+            # For ALL scheduled times, try to use news summary first
+            logger.info(f"Scheduled time is {scheduled_time_str or 'other'}. Checking for significant news...")
+            significant_news_summary = None
+            SIGNIFICANCE_THRESHOLD = 5 # Define the threshold
+            NEWS_HOURS_LIMIT = 12 # How far back to look for news
+            
+            try:
+                # Use NewsRepository here
+                recent_analyzed_news = await news_repo.get_recent_analyzed_news(hours_limit=NEWS_HOURS_LIMIT)
+                for news_item in recent_analyzed_news:
+                    raw_analysis = news_item.get('llm_raw_analysis')
+                    if raw_analysis:
+                         try:
+                            # Parse the JSON analysis
+                            analysis_data = json.loads(raw_analysis)
+                            significance = analysis_data.get('significance_score')
+                            summary = analysis_data.get('summary')
+                            
+                            # Check significance threshold
+                            if significance is not None and summary:
+                                try:
+                                     if int(significance) >= SIGNIFICANCE_THRESHOLD:
+                                         significant_news_summary = summary
+                                         logger.info(f"Found significant news (Score: {significance}) from tweet {news_item['original_tweet_id']}. Using its summary.")
+                                         break # Use the first significant summary found (most recent)
+                                except (ValueError, TypeError):
+                                     logger.warning(f"Could not parse significance score '{significance}' as int for tweet {news_item['original_tweet_id']}")
+                         except json.JSONDecodeError:
+                             logger.warning(f"Could not decode JSON analysis for tweet {news_item['original_tweet_id']}")
+                         except Exception as e_parse:
+                              logger.error(f"Error parsing analysis for {news_item['original_tweet_id']}: {e_parse}")
+            except Exception as e_db:
+                 logger.error(f"Error fetching recent analyzed news from repo: {e_db}", exc_info=True)
+
+            # --- Generate tweet based on whether significant news was found ---
+            if significant_news_summary:
                 emoji = "📈" if price_change >= 0 else "📉"
-                # Format price-only tweet
-                tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n#Bitcoin #PriceUpdate"
-                # content_type remains 'price_only'
-
-            else:
-                # For other times (or if time is unspecified), try to use news summary first
-                logger.info(f"Scheduled time is {scheduled_time_str or 'other'}. Checking for significant news...")
-                significant_news_summary = None
-                SIGNIFICANCE_THRESHOLD = 5 # Define the threshold
-                NEWS_HOURS_LIMIT = 12 # How far back to look for news
-                
-                try:
-                    # Use NewsRepository here
-                    recent_analyzed_news = await news_repo.get_recent_analyzed_news(hours_limit=NEWS_HOURS_LIMIT)
-                    for news_item in recent_analyzed_news:
-                        raw_analysis = news_item.get('llm_raw_analysis')
-                        if raw_analysis:
-                             try:
-                                # Parse the JSON analysis
-                                analysis_data = json.loads(raw_analysis)
-                                significance = analysis_data.get('significance_score')
-                                summary = analysis_data.get('summary')
-                                
-                                # Check significance threshold
-                                if significance is not None and summary:
-                                    try:
-                                         if int(significance) >= SIGNIFICANCE_THRESHOLD:
-                                             significant_news_summary = summary
-                                             logger.info(f"Found significant news (Score: {significance}) from tweet {news_item['original_tweet_id']}. Using its summary.")
-                                             break # Use the first significant summary found (most recent)
-                                    except (ValueError, TypeError):
-                                         logger.warning(f"Could not parse significance score '{significance}' as int for tweet {news_item['original_tweet_id']}")
-                             except json.JSONDecodeError:
-                                 logger.warning(f"Could not decode JSON analysis for tweet {news_item['original_tweet_id']}")
-                             except Exception as e_parse:
-                                  logger.error(f"Error parsing analysis for {news_item['original_tweet_id']}: {e_parse}")
-                except Exception as e_db:
-                     logger.error(f"Error fetching recent analyzed news from repo: {e_db}", exc_info=True)
-
-                # --- Generate tweet based on whether significant news was found ---
-                if significant_news_summary:
+                # Format tweet with news summary
+                tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{significant_news_summary}\n#Bitcoin #News"
+                content_type = 'news_summary'
+                use_fallback_content = False # News found, don't use fallback
+            
+            # Fallback to random content if no significant news found OR if use_fallback_content is still True
+            if use_fallback_content:
+                logger.info("No significant news found or fallback required. Falling back to random content.")
+                # ContentManager is already initialized above
+                content = await content_manager.get_random_content()
+                if content:
                     emoji = "📈" if price_change >= 0 else "📉"
-                    # Format tweet with news summary
-                    tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{significant_news_summary}\n#Bitcoin #News"
-                    content_type = 'news_summary'
+                    # Format tweet with random content
+                    tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{content['text']}\n#Bitcoin #Crypto"
+                    content_type = content["type"]
                 else:
-                    # Fallback to random content if no significant news found
-                    logger.info("No significant news found or error occurred. Falling back to random content.")
-                    # ContentManager is already initialized above
-                    content = await content_manager.get_random_content()
-                    if content:
-                        emoji = "📈" if price_change >= 0 else "📉"
-                        # Format tweet with random content
-                        tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{content['text']}\n#Bitcoin #Crypto"
-                        content_type = content["type"]
-                    else:
-                        # Fallback if random content also fails
-                        logger.warning("Failed to get random content. Falling back to price-only tweet.")
-                        emoji = "📈" if price_change >= 0 else "📉"
-                        tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n#Bitcoin #Price"
-                        content_type = "price_fallback"
+                    # Fallback if random content also fails
+                    logger.warning("Failed to get random content. Falling back to price-only tweet.")
+                    emoji = "📈" if price_change >= 0 else "📉"
+                    tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n#Bitcoin #Price"
+                    content_type = "price_fallback"
 
             # --- END Content Determination ---
             logger.debug(f"Generated tweet content: {tweet}")
