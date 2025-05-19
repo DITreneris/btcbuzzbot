@@ -14,6 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler # Import this
 # Remove ThreadPoolExecutor import if no longer needed
 # from apscheduler.executors.pool import ThreadPoolExecutor 
 from apscheduler.executors.asyncio import AsyncIOExecutor
+from apscheduler.jobstores.base import JobLookupError # Add this import
 
 # Ensure src is in the path
 if 'src' not in sys.path and os.path.exists('src'):
@@ -167,10 +168,10 @@ DEFAULT_NEWS_ANALYZE_MINUTES = 30
 DEFAULT_RESCHEDULE_GRACE_SECONDS = 60
 DEFAULT_NEWS_FETCH_GRACE_SECONDS = 300
 
-RESCHEDULE_INTERVAL_MINUTES = int(os.environ.get('RESCHEDULE_INTERVAL_MINUTES', DEFAULT_RESCHEDULE_MINUTES))
+# REMOVED: No longer need RESCHEDULE_INTERVAL_MINUTES since we'll run it only at startup
 NEWS_FETCH_INTERVAL_MINUTES = int(os.environ.get('NEWS_FETCH_INTERVAL_MINUTES', DEFAULT_NEWS_FETCH_MINUTES))
 NEWS_ANALYZE_INTERVAL_MINUTES = int(os.environ.get('NEWS_ANALYZE_INTERVAL_MINUTES', DEFAULT_NEWS_ANALYZE_MINUTES))
-RESCHEDULE_GRACE_SECONDS = int(os.environ.get('RESCHEDULE_GRACE_SECONDS', DEFAULT_RESCHEDULE_GRACE_SECONDS))
+# REMOVED: No longer need RESCHEDULE_GRACE_SECONDS for interval trigger
 NEWS_FETCH_GRACE_SECONDS = int(os.environ.get('NEWS_FETCH_GRACE_SECONDS', DEFAULT_NEWS_FETCH_GRACE_SECONDS))
 
 # --- Logging Setup ---
@@ -192,35 +193,18 @@ def create_scheduler():
         logger.error("Cannot create scheduler: Tasks module failed to import.")
         return None
         
-    # executors = {
-    #     'default': AsyncIOExecutor() # Remove explicit executors
-    # }
     job_defaults = {
         'coalesce': False,
         'max_instances': 1 
     }
-    # scheduler = BackgroundScheduler( # Change class
-    scheduler = AsyncIOScheduler( # Use AsyncIOScheduler
-        # executors=executors, # Remove executors arg
+    scheduler = AsyncIOScheduler(
         job_defaults=job_defaults,
         timezone=SCHEDULER_TIMEZONE
     )
 
     # --- Add Core Jobs --- 
-    # Note: reschedule_tweet_jobs itself runs periodically and manages the tweet jobs.
-    # We only need to schedule the rescheduler, fetcher, and analyzer here.
-
-    # 1. Job to periodically refresh the tweet schedule from DB
-    scheduler.add_job(
-        reschedule_tweet_jobs,
-        trigger='interval',
-        minutes=RESCHEDULE_INTERVAL_MINUTES, # Use variable
-        id=RESCHEDULE_JOB_ID,
-        name='Refresh Tweet Schedule from DB',
-        args=[scheduler], # Pass scheduler instance
-        replace_existing=True,
-        misfire_grace_time=RESCHEDULE_GRACE_SECONDS # Use variable
-    )
+    # Note: reschedule_tweet_jobs will be called directly at startup,
+    # not scheduled as a periodic job
 
     # 2. Job to fetch news periodically (if available)
     if NEWS_FETCHER_CLASS_AVAILABLE:
@@ -250,58 +234,63 @@ def create_scheduler():
         logger.info(f"News analysis job added (interval: {NEWS_ANALYZE_INTERVAL_MINUTES} minutes).")
     else:
         logger.warning("News analysis job NOT added: Task not available.")
-
+    
     return scheduler
 
-# --- Control Functions --- 
-# def start(): # Change to async
-async def start(): 
-    """Initializes and starts the global scheduler instance."""
+async def start():
+    """Starts the scheduler and initializes all tasks."""
     global scheduler_instance
+    
     if scheduler_instance and scheduler_instance.running:
-        logger.warning("Scheduler already running.")
-        return False
+        logger.warning("Scheduler already running. Ignoring start request.")
+        return True # Already running
         
-    if not TASKS_AVAILABLE:
-         logger.error("Cannot start scheduler: Tasks module not available.")
-         return False
-
-    logger.info("Initializing scheduler engine...")
-    scheduler_instance = create_scheduler()
-    if not scheduler_instance:
-        log_status_to_db("Error", "Scheduler engine creation failed.")
-        return False
-
-    # Perform initial scheduling run immediately in this thread
-    # This ensures tweet jobs are set up before the scheduler truly starts running them
     try:
-        logger.info("Performing initial tweet job scheduling...")
-        # reschedule_tweet_jobs(scheduler_instance) # Change to await
-        await reschedule_tweet_jobs(scheduler_instance) 
-    except Exception as e:
-        logger.error(f"Initial reschedule failed: {e}. Continuing scheduler start, but tweet jobs might be missing.", exc_info=True)
-
-    # Start the scheduler (non-blocking for AsyncIOScheduler)
-    try:
-        scheduler_instance.start(paused=False)
-        # time.sleep(1) # No longer needed with await/asyncio
-        if scheduler_instance.running:
-            await log_status_to_db("Running", "Scheduler engine started successfully.") # Await if log_status_to_db is async
-            logger.info("Scheduler engine started successfully.")
-            jobs = scheduler_instance.get_jobs()
-            logger.info(f"Active jobs ({len(jobs)}): {[(job.id, str(job.trigger)) for job in jobs]}")
-            return True
-        else:
-            log_status_to_db("Error", "Scheduler engine failed to start (state is not running).")
-            logger.error("Scheduler engine failed to start (state is not running).")
+        # Create the scheduler
+        scheduler_instance = create_scheduler()
+        if not scheduler_instance:
+            logger.error("Failed to create scheduler. Cannot start.")
             return False
+            
+        # Start the scheduler
+        scheduler_instance.start()
+        if not scheduler_instance.running:
+            logger.error("APScheduler not running after start() called. Check configuration.")
+            return False
+
+        # Attempt to remove any lingering periodic job for reschedule_tweet_jobs
+        try:
+            scheduler_instance.remove_job(RESCHEDULE_JOB_ID)
+            logger.info(f"Successfully removed any lingering periodic job with ID '{RESCHEDULE_JOB_ID}'.")
+        except JobLookupError:
+            logger.info(f"No lingering periodic job found with ID '{RESCHEDULE_JOB_ID}' to remove. This is expected if it was already cleaned up or never existed periodically.")
+        except Exception as e_remove:
+            logger.warning(f"Could not remove job '{RESCHEDULE_JOB_ID}', it might not exist or another error occurred: {e_remove}")
+            
+        await log_status_to_db("Running", "Scheduler started successfully.")
+        logger.info("Scheduler started successfully.")
+        
+        # Run reschedule_tweet_jobs once at startup instead of scheduling it as a periodic job
+        try:
+            logger.info("Running reschedule_tweet_jobs once at startup to initialize tweet schedule.")
+            await reschedule_tweet_jobs(scheduler_instance)
+            logger.info("Initial tweet schedule successfully set up.")
+        except Exception as e:
+            logger.error(f"Failed to run initial reschedule_tweet_jobs: {e}", exc_info=True)
+            await log_status_to_db("Warning", f"Initial tweet schedule setup failed: {e}")
+            # Continue running even if initial reschedule fails
+        
+        return True
+            
     except Exception as e:
-        log_status_to_db("Error", f"Scheduler engine failed to start: {e}")
-        logger.error(f"Scheduler engine failed to start: {e}", exc_info=True)
-        if scheduler_instance: # Attempt cleanup
-             try: scheduler_instance.shutdown(wait=False)
-             except: pass
-        scheduler_instance = None
+        logger.error(f"Error starting scheduler: {e}", exc_info=True)
+        await log_status_to_db("Error", f"Scheduler start failed: {e}")
+        # Attempt to clean up if partially started
+        if scheduler_instance and scheduler_instance.running:
+            try:
+                scheduler_instance.shutdown()
+            except:
+                pass # Ignore shutdown errors during failed startup
         return False
 
 # def stop(): # Change to async
