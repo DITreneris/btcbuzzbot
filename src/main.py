@@ -32,6 +32,11 @@ except ImportError as e_telegram:
     _initial_logger = logging.getLogger(__name__) # Use a temp logger if main one isn't ready
     _initial_logger.error(f"CRITICAL: Failed to import send_telegram_message from src.telegram_poster: {e_telegram}")
     _initial_logger.error(f"Current sys.path in src.main at time of telegram_poster import failure: {sys.path}")
+    try:
+        src_contents = os.listdir('/app/src') # Attempt to list /app/src
+        _initial_logger.error(f"Contents of /app/src: {src_contents}")
+    except Exception as list_err:
+        _initial_logger.error(f"Could not list contents of /app/src: {list_err}")
     
     # Define a stub function so the rest of the code doesn't break if called
     async def _stub_send_telegram_message(bot_token: str, chat_id: str, message: str) -> bool:
