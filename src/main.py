@@ -4,6 +4,7 @@ from datetime import datetime
 import traceback
 import logging
 import json
+import sys
 
 from src.price_fetcher import PriceFetcher
 from src.database import Database
@@ -13,7 +14,32 @@ from src.twitter_client import TwitterClient
 from src.content_manager import ContentManager
 from src.config import Config
 from src.discord_poster import send_discord_message
-from src.telegram_poster import send_telegram_message
+# from src.telegram_poster import send_telegram_message # Comment out original
+
+# --- Telegram Poster Import with Fallback ---
+TELEGRAM_POSTER_AVAILABLE = False # Default to False
+send_telegram_message = None # Placeholder
+
+try:
+    from src.telegram_poster import send_telegram_message as _send_telegram_message_actual
+    send_telegram_message = _send_telegram_message_actual # Assign to the global name
+    TELEGRAM_POSTER_AVAILABLE = True
+    # logger.info("Successfully imported send_telegram_message from src.telegram_poster") # Optional: log success
+except ImportError as e_telegram:
+    # Make sure logger is defined before this point if not already
+    # For safety, we might need to ensure 'logger' is initialized if this is very early
+    # Assuming logger is initialized globally as before.
+    _initial_logger = logging.getLogger(__name__) # Use a temp logger if main one isn't ready
+    _initial_logger.error(f"CRITICAL: Failed to import send_telegram_message from src.telegram_poster: {e_telegram}")
+    _initial_logger.error(f"Current sys.path in src.main at time of telegram_poster import failure: {sys.path}")
+    
+    # Define a stub function so the rest of the code doesn't break if called
+    async def _stub_send_telegram_message(bot_token: str, chat_id: str, message: str) -> bool:
+        _stub_logger = logging.getLogger(__name__) # Use a temp logger
+        _stub_logger.warning("Telegram posting skipped: send_telegram_message was not available due to import error during src.main load.")
+        return False
+    send_telegram_message = _stub_send_telegram_message # Assign stub to the global name
+# --- End Telegram Poster Import with Fallback ---
 
 logger = logging.getLogger(__name__)
 
