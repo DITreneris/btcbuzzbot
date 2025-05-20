@@ -90,76 +90,185 @@
     <!-- Analyzed News Tweets -->
     <div class="card mb-4">
         <div class="card-header">Analyzed News Tweets (Latest {{ potential_news | length }})</div>
-        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
-             <!-- Display Sentiment Trend -->
-            <div class="mb-3 p-2 border rounded" style="background-color: transparent; border-color: var(--border-color);">
-                <h6 style="color: var(--text-light);">Recent Sentiment Trend (Last 7 Days)</h6>
-                <ul class="list-group list-group-flush">
-                    {% for day_trend in sentiment_trend %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center" style="background-color: transparent; border-color: var(--border-color);">
-                        {{ day_trend.date }}
-                        {% if day_trend.score is not none %}
-                            <span class="badge bg-{{ 'success' if day_trend.score > 0.1 else ('danger' if day_trend.score < -0.1 else 'secondary') }}">
-                                {{ day_trend.score | round(2) }}
-                            </span>
-                        {% else %}
-                            <span class="badge bg-secondary text-light">No Data</span>
-                        {% endif %}
-                    </li>
-                    {% else %}
-                    <li class="list-group-item" style="background-color: transparent; border-color: var(--border-color);">No sentiment data available for the last 7 days.</li>
-                    {% endfor %}
-                </ul>
+        <div class="card-body">
+            <!-- News Analysis Overview Section -->
+            <div class="row mb-4">
+                <!-- Sentiment Trend -->
+                <div class="col-md-6">
+                    <div class="p-3 border rounded" style="background-color: transparent; border-color: var(--border-color);">
+                        <h5 style="color: var(--text-light);">Recent Sentiment Trend (Last 7 Days)</h5>
+                        <div style="height: 200px;">
+                            <canvas id="sentimentChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Analysis Stats -->
+                <div class="col-md-6">
+                    <div class="p-3 border rounded" style="background-color: transparent; border-color: var(--border-color);">
+                        <h5 style="color: var(--text-light);">News Analysis Stats</h5>
+                        
+                        <!-- Calculate statistics -->
+                        {% set processed_count = 0 %}
+                        {% set high_sig_count = 0 %}
+                        {% set med_sig_count = 0 %}
+                        {% set low_sig_count = 0 %}
+                        {% set pos_sent_count = 0 %}
+                        {% set neut_sent_count = 0 %}
+                        {% set neg_sent_count = 0 %}
+                        
+                        {% for news_item in potential_news %}
+                            {% if news_item.parsed_significance is not none %}
+                                {% set processed_count = processed_count + 1 %}
+                                {% if news_item.parsed_significance >= 7 %}
+                                    {% set high_sig_count = high_sig_count + 1 %}
+                                {% elif news_item.parsed_significance >= 4 %}
+                                    {% set med_sig_count = med_sig_count + 1 %}
+                                {% else %}
+                                    {% set low_sig_count = low_sig_count + 1 %}
+                                {% endif %}
+                            {% endif %}
+                            
+                            {% if news_item.parsed_sentiment is not none %}
+                                {% if news_item.parsed_sentiment > 0.1 %}
+                                    {% set pos_sent_count = pos_sent_count + 1 %}
+                                {% elif news_item.parsed_sentiment < -0.1 %}
+                                    {% set neg_sent_count = neg_sent_count + 1 %}
+                                {% else %}
+                                    {% set neut_sent_count = neut_sent_count + 1 %}
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Significance Distribution</h6>
+                                <div class="mb-2">
+                                    <span class="badge bg-danger me-1">High</span>
+                                    <div class="progress" style="height: 15px;">
+                                        <div class="progress-bar bg-danger" role="progressbar" 
+                                            style="width: {{ (high_sig_count / processed_count * 100) if processed_count > 0 else 0 }}%;" 
+                                            aria-valuenow="{{ high_sig_count }}" aria-valuemin="0" aria-valuemax="{{ processed_count }}">
+                                            {{ high_sig_count }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <span class="badge bg-warning me-1">Medium</span>
+                                    <div class="progress" style="height: 15px;">
+                                        <div class="progress-bar bg-warning" role="progressbar" 
+                                            style="width: {{ (med_sig_count / processed_count * 100) if processed_count > 0 else 0 }}%;" 
+                                            aria-valuenow="{{ med_sig_count }}" aria-valuemin="0" aria-valuemax="{{ processed_count }}">
+                                            {{ med_sig_count }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <span class="badge bg-secondary me-1">Low</span>
+                                    <div class="progress" style="height: 15px;">
+                                        <div class="progress-bar bg-secondary" role="progressbar" 
+                                            style="width: {{ (low_sig_count / processed_count * 100) if processed_count > 0 else 0 }}%;" 
+                                            aria-valuenow="{{ low_sig_count }}" aria-valuemin="0" aria-valuemax="{{ processed_count }}">
+                                            {{ low_sig_count }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <h6>Sentiment Distribution</h6>
+                                <div class="mb-2">
+                                    <span class="badge bg-success me-1">Positive</span>
+                                    <div class="progress" style="height: 15px;">
+                                        <div class="progress-bar bg-success" role="progressbar" 
+                                            style="width: {{ (pos_sent_count / processed_count * 100) if processed_count > 0 else 0 }}%;" 
+                                            aria-valuenow="{{ pos_sent_count }}" aria-valuemin="0" aria-valuemax="{{ processed_count }}">
+                                            {{ pos_sent_count }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <span class="badge bg-secondary me-1">Neutral</span>
+                                    <div class="progress" style="height: 15px;">
+                                        <div class="progress-bar bg-secondary" role="progressbar" 
+                                            style="width: {{ (neut_sent_count / processed_count * 100) if processed_count > 0 else 0 }}%;" 
+                                            aria-valuenow="{{ neut_sent_count }}" aria-valuemin="0" aria-valuemax="{{ processed_count }}">
+                                            {{ neut_sent_count }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <span class="badge bg-danger me-1">Negative</span>
+                                    <div class="progress" style="height: 15px;">
+                                        <div class="progress-bar bg-danger" role="progressbar" 
+                                            style="width: {{ (neg_sent_count / processed_count * 100) if processed_count > 0 else 0 }}%;" 
+                                            aria-valuenow="{{ neg_sent_count }}" aria-valuemin="0" aria-valuemax="{{ processed_count }}">
+                                            {{ neg_sent_count }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             
-            <table class="table table-sm table-striped table-dark">
-                <thead>
-                    <tr>
-                        <th>Published</th>
-                        <th>Tweet</th>
-                        <th>Author</th>
-                        <th>Significance</th>
-                        <th>Sentiment</th>
-                        <th>LLM Summary</th>
-                        <th>Link</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for news_item in potential_news %}
-                    <tr>
-                        <!-- Use format_datetime filter if available, else display raw -->
-                        <td>{{ news_item.published_at | format_datetime if news_item.published_at else 'N/A' }}</td>
-                        <td>{{ news_item.text | truncate(100) if news_item.text else news_item.tweet_text | truncate(100) }}</td> <!-- Use text or tweet_text -->
-                        <td>{{ news_item.author }}</td> <!-- Use author field -->
-                        <td>
-                            {% if news_item.parsed_significance is not none %}
-                                <span class="badge bg-{{ 'danger' if news_item.parsed_significance >= 7 else ('warning' if news_item.parsed_significance >= 4 else 'secondary') }}">
-                                    {{ news_item.parsed_significance }}/10
-                                </span>
-                            {% else %}
-                                <span class="badge bg-light text-dark">N/A</span>
-                            {% endif %}
-                        </td>
-                         <td>
-                            {% if news_item.parsed_sentiment is not none %}
-                                <span class="badge bg-{{ 'success' if news_item.parsed_sentiment > 0.1 else ('danger' if news_item.parsed_sentiment < -0.1 else 'secondary') }}">
-                                    {{ news_item.parsed_sentiment | round(2) }}
-                                </span>
-                             {% else %}
-                                <span class="badge bg-light text-dark">N/A</span>
-                            {% endif %}
-                        </td>
-                        <!-- Use parsed_summary. Default to 'N/A' if missing -->
-                        <td>{{ news_item.parsed_summary | default('N/A', true) }}</td> 
-                        <td><a href="{{ news_item.tweet_url }}" target="_blank">View</a></td> 
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="7" class="text-center">No news tweets found.</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <!-- Enhanced News Tweets Table -->
+            <div style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-sm table-striped table-dark">
+                    <thead>
+                        <tr>
+                            <th>Published</th>
+                            <th>Tweet</th>
+                            <th>Author</th>
+                            <th>Significance</th>
+                            <th>Sentiment</th>
+                            <th>Summary</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for news_item in potential_news %}
+                        <tr>
+                            <td>{{ news_item.published_at | format_datetime if news_item.published_at else 'N/A' }}</td>
+                            <td>{{ news_item.text | truncate(100) if news_item.text else news_item.tweet_text | truncate(100) }}</td>
+                            <td>{{ news_item.author_id }}</td>
+                            <td>
+                                {% if news_item.parsed_significance is not none %}
+                                    <span class="badge bg-{{ 'danger' if news_item.parsed_significance >= 7 else ('warning' if news_item.parsed_significance >= 4 else 'secondary') }}">
+                                        {{ news_item.parsed_significance }}/10
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-light text-dark">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if news_item.parsed_sentiment is not none %}
+                                    <span class="badge bg-{{ 'success' if news_item.parsed_sentiment > 0.1 else ('danger' if news_item.parsed_sentiment < -0.1 else 'secondary') }}">
+                                        {{ news_item.parsed_sentiment | round(2) }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-light text-dark">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ news_item.parsed_summary | default('N/A', true) }}</td>
+                            <td>
+                                <a href="{{ news_item.tweet_url }}" target="_blank" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-external-link-alt"></i> View
+                                </a>
+                                <a href="{{ url_for('view_news_analysis', news_id=news_item.id) }}" class="btn btn-sm btn-info">
+                                    <i class="fas fa-chart-line"></i> Analysis
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center">No news tweets found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -323,72 +432,206 @@ Last Used: {{ joke.last_used | format_datetime if joke.last_used else 'Never' }}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const ctx = document.getElementById('priceChart').getContext('2d');
-    // Correctly assign JSON data
-    const priceData = JSON.parse('{{ price_history | tojson | safe }}');
-
-    if (priceData && priceData.length > 0) {
-        const labels = priceData.map(item => {
-            try {
-                // Attempt to create Date object and format it
-                return new Date(item.timestamp).toLocaleString();
-            } catch (e) {
-                console.error("Error parsing timestamp:", item.timestamp, e);
-                return item.timestamp; // Fallback to raw timestamp
-            }
-        });
-        const data = priceData.map(item => item.price);
-
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'BTC Price (USD)',
-                    data: data,
-                    borderColor: 'rgb(247, 147, 26)', // Use accent color
-                    backgroundColor: 'rgba(247, 147, 26, 0.1)',
-                    tension: 0.1,
-                    borderWidth: 2,
-                    pointBackgroundColor: 'rgb(247, 147, 26)'
-                }]
+    // Chart color scheme
+    const isDarkMode = document.body.classList.contains('dark-mode') || 
+                       window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    const chartColors = {
+        gridColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        textColor: isDarkMode ? '#adb5bd' : '#666',
+        positive: 'rgba(40, 167, 69, 0.7)',
+        negative: 'rgba(220, 53, 69, 0.7)',
+        neutral: 'rgba(108, 117, 125, 0.7)',
+        price: 'rgba(255, 193, 7, 0.7)'
+    };
+    
+    // Configure price history chart
+    const priceCtx = document.getElementById('priceChart').getContext('2d');
+    const priceData = [
+        {% for price in price_history %}
+            {
+                x: '{{ price.timestamp | format_datetime }}',
+                y: {{ price.price }}
             },
-            options: {
-                scales: {
-                    y: {
-                        beginAtZero: false,
-                        ticks: {
-                            color: '#94A3B8' // Muted text color for ticks
-                        },
-                        grid: {
-                            color: '#334155' // Border color for grid lines
-                        }
+        {% endfor %}
+    ];
+    
+    new Chart(priceCtx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: 'BTC Price (USD)',
+                data: priceData,
+                borderColor: chartColors.price,
+                backgroundColor: chartColors.price,
+                tension: 0.1,
+                pointRadius: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'day',
+                        tooltipFormat: 'MMM dd, yyyy'
                     },
-                    x: {
-                         ticks: {
-                            color: '#94A3B8' // Muted text color for ticks
-                        },
-                        grid: {
-                            color: '#334155' // Border color for grid lines
-                        }
+                    title: {
+                        display: true,
+                        text: 'Date'
+                    },
+                    grid: {
+                        color: chartColors.gridColor
+                    },
+                    ticks: {
+                        color: chartColors.textColor
                     }
                 },
-                plugins: {
-                    legend: {
-                        labels: {
-                            color: '#F1F5F9' // Light text color for legend
+                y: {
+                    title: {
+                        display: true,
+                        text: 'USD'
+                    },
+                    grid: {
+                        color: chartColors.gridColor
+                    },
+                    ticks: {
+                        color: chartColors.textColor,
+                        callback: function(value) {
+                            return '$' + value.toLocaleString();
+                        }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return '$' + context.parsed.y.toLocaleString();
                         }
                     }
                 }
             }
-        });
-    } else {
-        // Optional: Display a message if there's no price data
-        ctx.font = "16px Inter";
-        ctx.fillStyle = "#94A3B8";
-        ctx.textAlign = "center";
-        ctx.fillText("No price history data available.", ctx.canvas.width / 2, ctx.canvas.height / 2);
-    }
+        }
+    });
+    
+    // Configure sentiment trend chart
+    const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');
+    const sentimentData = [
+        {% for day in sentiment_trend %}
+            {
+                x: '{{ day.date }}',
+                y: {% if day.score is not none %}{{ day.score }}{% else %}null{% endif %}
+            },
+        {% endfor %}
+    ];
+    
+    new Chart(sentimentCtx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: 'Average Sentiment',
+                data: sentimentData,
+                borderColor: function(context) {
+                    const index = context.dataIndex;
+                    const value = context.dataset.data[index].y;
+                    if (value === null) return chartColors.neutral;
+                    return value > 0.1 ? chartColors.positive : (value < -0.1 ? chartColors.negative : chartColors.neutral);
+                },
+                backgroundColor: function(context) {
+                    const index = context.dataIndex;
+                    const value = context.dataset.data[index].y;
+                    if (value === null) return chartColors.neutral;
+                    return value > 0.1 ? chartColors.positive : (value < -0.1 ? chartColors.negative : chartColors.neutral);
+                },
+                borderWidth: 2,
+                tension: 0.2,
+                pointRadius: 4,
+                pointBackgroundColor: function(context) {
+                    const index = context.dataIndex;
+                    const value = context.dataset.data[index].y;
+                    if (value === null) return chartColors.neutral;
+                    return value > 0.1 ? chartColors.positive : (value < -0.1 ? chartColors.negative : chartColors.neutral);
+                },
+                segment: {
+                    borderColor: function(context) {
+                        const prev = context.p0.parsed.y;
+                        const curr = context.p1.parsed.y;
+                        if (prev === null || curr === null) return chartColors.neutral;
+                        
+                        const avg = (prev + curr) / 2;
+                        return avg > 0.1 ? chartColors.positive : (avg < -0.1 ? chartColors.negative : chartColors.neutral);
+                    }
+                }
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'day',
+                        tooltipFormat: 'MMM dd, yyyy'
+                    },
+                    title: {
+                        display: true,
+                        text: 'Date'
+                    },
+                    grid: {
+                        color: chartColors.gridColor
+                    },
+                    ticks: {
+                        color: chartColors.textColor
+                    }
+                },
+                y: {
+                    min: -1,
+                    max: 1,
+                    title: {
+                        display: true,
+                        text: 'Sentiment'
+                    },
+                    grid: {
+                        color: chartColors.gridColor
+                    },
+                    ticks: {
+                        color: chartColors.textColor,
+                        callback: function(value) {
+                            if (value > 0.5) return 'Very Positive';
+                            if (value > 0.1) return 'Positive';
+                            if (value >= -0.1 && value <= 0.1) return 'Neutral';
+                            if (value < -0.5) return 'Very Negative';
+                            if (value < -0.1) return 'Negative';
+                            return value.toFixed(1);
+                        }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const value = context.parsed.y;
+                            if (value === null) return 'No data';
+                            
+                            let sentiment = '';
+                            if (value > 0.5) sentiment = 'Very Positive';
+                            else if (value > 0.1) sentiment = 'Positive';
+                            else if (value >= -0.1 && value <= 0.1) sentiment = 'Neutral';
+                            else if (value < -0.5) sentiment = 'Very Negative';
+                            else if (value < -0.1) sentiment = 'Negative';
+                            
+                            return `Sentiment: ${sentiment} (${value.toFixed(2)})`;
+                        }
+                    }
+                }
+            }
+        }
+    });
 });
 </script>
 

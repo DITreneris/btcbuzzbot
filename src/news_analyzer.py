@@ -111,6 +111,7 @@ class NewsAnalyzer:
         # --- Removed old ContentManager Init check, rely on type hint & shared instance creation ---
         self.content_manager = content_manager 
         self.llm_client = None # Assuming it uses an LLM client
+        self.vader_analyzer = None # Initialize VADER analyzer attribute
         self.initialized = False
         # self.analysis_batch_size = 10 # Example batch size - Use Config?
         # self.processing_timeout = 300 # Example timeout in seconds - Use Config?
@@ -157,6 +158,17 @@ class NewsAnalyzer:
             logger.error("NewsAnalyzer initialization failed: ContentManager instance not provided.")
             return
         
+        # Initialize VADER sentiment analyzer if available
+        if VADER_AVAILABLE:
+            try:
+                self.vader_analyzer = SentimentIntensityAnalyzer()
+                logger.info("VADER SentimentIntensityAnalyzer initialized.")
+            except Exception as e:
+                logger.error(f"Error initializing VADER SentimentIntensityAnalyzer: {e}", exc_info=True)
+                self.vader_analyzer = None # Ensure it's None if init fails
+        else:
+            logger.warning("VADER analyzer not initialized: Library not available.")
+        
         # Initialize LLM client (Groq Example)
         # Check availability again
         if not GROQ_AVAILABLE:
@@ -192,52 +204,90 @@ class NewsAnalyzer:
         """
         Uses Groq LLM to perform combined analysis (significance, sentiment, summary)
         and returns results as a dictionary parsed from JSON.
+        Falls back to VADER for sentiment if Groq fails or doesn't provide sentiment.
         """
-        if not self.groq_client:
-            return None # LLM disabled
+        analysis_output = {
+            "significance": None,
+            "sentiment": None,
+            "summary": None,
+            "sentiment_source": "groq"  # Assume Groq by default
+        }
 
-        prompt = _ANALYSIS_PROMPT_JSON.format(text=text)
-
-        try:
-            chat_completion = await self.groq_client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=self.groq_model,
-                temperature=self.llm_analyze_temp,      # Use new configured value
-                max_tokens=self.llm_analyze_max_tokens, # Use new configured value
-                # Add response_format for JSON output if supported and needed
-                # response_format={"type": "json_object"}, # Check Groq API docs if needed
-            )
-            response_content = chat_completion.choices[0].message.content.strip()
-            
-            # --- Robust JSON Parsing ---
+        if self.groq_client:
+            prompt = _ANALYSIS_PROMPT_JSON.format(text=text)
             try:
-                # Try finding JSON block even if there's extra text
-                json_start = response_content.find('{')
-                json_end = response_content.rfind('}')
-                if json_start != -1 and json_end != -1 and json_end > json_start:
-                    json_string = response_content[json_start:json_end+1]
-                    analysis_result = json.loads(json_string)
-                    
-                    # Validate expected keys
-                    if all(k in analysis_result for k in ["significance", "sentiment", "summary"]):
-                         logger.debug(f"LLM Analysis for '{text[:50]}...': {analysis_result}")
-                         return analysis_result
+                chat_completion = await self.groq_client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=self.groq_model,
+                    temperature=self.llm_analyze_temp,
+                    max_tokens=self.llm_analyze_max_tokens,
+                )
+                response_content = chat_completion.choices[0].message.content.strip()
+                
+                try:
+                    json_start = response_content.find('{')
+                    json_end = response_content.rfind('}')
+                    if json_start != -1 and json_end != -1 and json_end > json_start:
+                        json_string = response_content[json_start:json_end+1]
+                        parsed_groq_result = json.loads(json_string)
+                        
+                        analysis_output["significance"] = parsed_groq_result.get("significance")
+                        analysis_output["sentiment"] = parsed_groq_result.get("sentiment")
+                        analysis_output["summary"] = parsed_groq_result.get("summary")
+                        
+                        if not all(k in parsed_groq_result for k in ["significance", "sentiment", "summary"]):
+                            logger.warning(f"Groq JSON response missing some expected keys for '{text[:50]}...': {json_string}")
+                        # Sentiment still missing after Groq success? Fallback to VADER for sentiment only.
+                        if not analysis_output["sentiment"] and self.vader_analyzer:
+                            logger.warning(f"Groq analysis for '{text[:50]}...' succeeded but missing sentiment. Falling back to VADER for sentiment.")
+                            vader_scores = self.vader_analyzer.polarity_scores(text)
+                            compound = vader_scores['compound']
+                            if compound >= 0.05:
+                                analysis_output["sentiment"] = "Positive"
+                            elif compound <= -0.05:
+                                analysis_output["sentiment"] = "Negative"
+                            else:
+                                analysis_output["sentiment"] = "Neutral"
+                            analysis_output["sentiment_source"] = "vader_fallback_groq_no_sentiment"
                     else:
-                        logger.warning(f"LLM JSON response missing expected keys for '{text[:50]}...': {json_string}")
-                        return None
-                else:
-                     logger.warning(f"Could not find valid JSON object in LLM response for '{text[:50]}...': {response_content}")
-                     return None
-            except json.JSONDecodeError as json_err:
-                logger.error(f"Failed to parse JSON from LLM response for '{text[:50]}...': {json_err}. Response: {response_content}")
-                return None
-            # --- End Robust JSON Parsing ---
+                         logger.warning(f"Could not find valid JSON object in Groq response for '{text[:50]}...': {response_content}")
+                         # Groq JSON structure error, try VADER for sentiment if other fields also likely missing
+                         analysis_output["sentiment_source"] = "vader_fallback_groq_json_error"
+                except json.JSONDecodeError as json_err:
+                    logger.error(f"Failed to parse JSON from Groq response for '{text[:50]}...': {json_err}. Response: {response_content}")
+                    # Groq JSON parsing error, try VADER for sentiment
+                    analysis_output["sentiment_source"] = "vader_fallback_groq_json_decode_error"
 
-        except Exception as e:
-            # Check for rate limit errors specifically if possible (depends on Groq client exceptions)
-            # Example: if isinstance(e, groq.RateLimitError): logger.warning(...)
-            logger.error(f"Groq API error during combined analysis: {e}", exc_info=False) # Avoid full traceback spam
-            return None # Default to None on error
+            except Exception as e:
+                logger.error(f"Groq API error during combined analysis for '{text[:50]}...': {e}", exc_info=False)
+                # Groq API error, try VADER for sentiment
+                analysis_output["sentiment_source"] = "vader_fallback_groq_api_error"
+        else:
+            logger.warning("Groq client not available. Attempting VADER for sentiment only.")
+            analysis_output["sentiment_source"] = "vader_fallback_no_groq_client"
+
+        # Fallback to VADER for sentiment if it's still None and VADER is available
+        if analysis_output["sentiment"] is None and self.vader_analyzer:
+            logger.info(f"Sentiment from Groq is None for '{text[:50]}...'. Using VADER for sentiment. Source: {analysis_output['sentiment_source']}")
+            vader_scores = self.vader_analyzer.polarity_scores(text)
+            compound = vader_scores['compound']
+            if compound >= 0.05:
+                analysis_output["sentiment"] = "Positive"
+            elif compound <= -0.05:
+                analysis_output["sentiment"] = "Negative"
+            else:
+                analysis_output["sentiment"] = "Neutral"
+            # Update source if it was initially groq but sentiment was missing
+            if analysis_output["sentiment_source"] == "groq":
+                analysis_output["sentiment_source"] = "vader_fallback_groq_sentiment_missing"
+        elif analysis_output["sentiment"] is None:
+            logger.warning(f"Sentiment could not be determined for '{text[:50]}...'. Groq failed/unavailable and VADER unavailable/failed.")
+            analysis_output["sentiment_source"] = "unavailable"
+
+        # If all analysis failed, significance and summary might be None.
+        # Ensure the dict is returned, even if partially filled or with None values.
+        logger.debug(f"Final Analysis for '{text[:50]}...': {analysis_output}")
+        return analysis_output
 
     # Update analyze_tweets to use news_repo
     async def analyze_tweets(self, tweets: List[Dict[str, Any]]) -> int:

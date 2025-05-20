@@ -162,6 +162,9 @@ class Database:
                     "    sentiment_label TEXT,\n"
                     "    keywords TEXT, -- Comma-separated keywords\n"
                     "    summary TEXT,\n"
+                    "    significance_label TEXT,\n"
+                    "    significance_score REAL,\n"
+                    "    sentiment_source TEXT,\n"
                     "    llm_analysis JSONB -- Store structured analysis from LLM\n"
                     ");"
                 )
@@ -265,7 +268,11 @@ class Database:
                 is_news INTEGER DEFAULT 0, -- SQLite uses INTEGER for BOOLEAN (0/1)
                 news_score REAL DEFAULT 0.0,
                 sentiment TEXT,
-                summary TEXT
+                summary TEXT,
+                significance_label TEXT,
+                significance_score REAL,
+                sentiment_source TEXT,
+                llm_analysis TEXT -- SQLite uses TEXT for JSON
             );
             ''')
             

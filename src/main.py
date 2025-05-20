@@ -14,37 +14,7 @@ from src.twitter_client import TwitterClient
 from src.content_manager import ContentManager
 from src.config import Config
 from src.discord_poster import send_discord_message
-# from src.telegram_poster import send_telegram_message # Comment out original
-
-# --- Telegram Poster Import with Fallback ---
-TELEGRAM_POSTER_AVAILABLE = False # Default to False
-send_telegram_message = None # Placeholder
-
-try:
-    from src.telegram_poster import send_telegram_message as _send_telegram_message_actual
-    send_telegram_message = _send_telegram_message_actual # Assign to the global name
-    TELEGRAM_POSTER_AVAILABLE = True
-    # logger.info("Successfully imported send_telegram_message from src.telegram_poster") # Optional: log success
-except ImportError as e_telegram:
-    # Make sure logger is defined before this point if not already
-    # For safety, we might need to ensure 'logger' is initialized if this is very early
-    # Assuming logger is initialized globally as before.
-    _initial_logger = logging.getLogger(__name__) # Use a temp logger if main one isn't ready
-    _initial_logger.error(f"CRITICAL: Failed to import send_telegram_message from src.telegram_poster: {e_telegram}")
-    _initial_logger.error(f"Current sys.path in src.main at time of telegram_poster import failure: {sys.path}")
-    try:
-        src_contents = os.listdir('/app/src') # Attempt to list /app/src
-        _initial_logger.error(f"Contents of /app/src: {src_contents}")
-    except Exception as list_err:
-        _initial_logger.error(f"Could not list contents of /app/src: {list_err}")
-    
-    # Define a stub function so the rest of the code doesn't break if called
-    async def _stub_send_telegram_message(bot_token: str, chat_id: str, message: str) -> bool:
-        _stub_logger = logging.getLogger(__name__) # Use a temp logger
-        _stub_logger.warning("Telegram posting skipped: send_telegram_message was not available due to import error during src.main load.")
-        return False
-    send_telegram_message = _stub_send_telegram_message # Assign stub to the global name
-# --- End Telegram Poster Import with Fallback ---
+from src.telegram_poster import send_telegram_message
 
 logger = logging.getLogger(__name__)
 
@@ -157,10 +127,8 @@ async def post_btc_update(config=None, scheduled_time_str=None):
         logger.info(f"Initializing database/repositories for post_btc_update...")
         
         # Initialize database and repositories
-        # Database object is still needed for price/post logging
         db = Database(config.sqlite_db_path) 
         news_repo = NewsRepository(config.sqlite_db_path)
-        # ContentManager now uses ContentRepository internally
         content_manager = ContentManager(config.sqlite_db_path)
         
         price_fetcher = PriceFetcher()
@@ -181,7 +149,6 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             
             # Get latest price from database for comparison
             logger.info("Fetching latest price from database...")
-            # Use the main db object for price methods
             latest_price_data = await db.get_latest_price()
             previous_price = latest_price_data["price"] if latest_price_data else current_price
             logger.info(f"Previous BTC price: ${previous_price:,.2f}")
@@ -192,7 +159,6 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             
             # Store new price in database
             logger.info("Storing new price in database...")
-            # Use the main db object for price methods
             await db.store_price(current_price)
             
             # --- Determine Tweet Content based on Schedule ---
@@ -290,71 +256,53 @@ async def post_btc_update(config=None, scheduled_time_str=None):
 
             # --- START Duplicate Check ---
             logger.info("Checking for recent posts...")
-            # Use the main db object for post logging/checking methods
             if await db.has_posted_recently(minutes=5):
                 logger.warning("Skipping post: A tweet was already posted successfully in the last 5 minutes.")
                 return None # Indicate skipped post
             # --- END Duplicate Check ---
             
-            # Post tweet
-            logger.info(f"Posting tweet: {tweet[:50]}...")
+            # Post to Twitter
+            logger.info("Posting to Twitter...")
             tweet_id = await twitter.post_tweet(tweet)
             
             if tweet_id:
-                # Log successful post
-                logger.info("Logging successful post to database...")
-                # Use the main db object for post logging methods
-                await db.log_post(
-                    tweet_id=tweet_id,
-                    tweet=tweet,
-                    price=current_price,
-                    price_change=price_change,
-                    content_type=content_type
-                )
+                logger.info(f"Successfully posted tweet with ID: {tweet_id}")
                 
-                # --- Add Discord Posting Logic ---
+                # Post to Discord if enabled
                 if config.enable_discord_posting:
-                    discord_webhook_url = config.discord_webhook_url
-                    if discord_webhook_url:
-                        logger.info("Discord posting enabled. Sending message...")
-                        # Send the same text as the tweet
-                        # Ensure we pass the tweet_text, not the tweet object
-                        discord_success = await send_discord_message(discord_webhook_url, tweet)
-                        if discord_success:
-                             logger.info("Successfully posted message to Discord.")
+                    logger.info("Discord posting enabled. Sending message...")
+                    discord_success = await send_discord_message(
+                        config.discord_webhook_url,
+                        tweet
+                    )
+                    if discord_success:
+                        logger.info("Successfully posted message to Discord.")
                     else:
-                        logger.warning("Discord posting enabled, but DISCORD_WEBHOOK_URL is not set.")
-                # --- End Discord Posting Logic ---
+                        logger.warning("Failed to post message to Discord.")
                 
-                # --- Add Telegram Posting Logic ---
+                # Post to Telegram if enabled
                 if config.enable_telegram_posting:
-                    if config.telegram_bot_token and config.telegram_chat_id:
-                        logger.info("Telegram posting enabled. Sending message...")
-                        # Send the same text as the tweet
-                        telegram_success = await send_telegram_message(
-                            config.telegram_bot_token,
-                            config.telegram_chat_id,
-                            tweet
-                        )
-                        if telegram_success:
-                            logger.info("Successfully posted message to Telegram.")
-                        else:
-                            logger.warning("Failed to post message to Telegram.")
+                    logger.info("Telegram posting enabled. Sending message...")
+                    telegram_success = await send_telegram_message(
+                        config.telegram_bot_token,
+                        config.telegram_chat_id,
+                        tweet
+                    )
+                    if telegram_success:
+                        logger.info("Successfully posted message to Telegram.")
                     else:
-                        logger.warning("Telegram posting enabled, but bot token or chat ID is not set.")
-                # --- End Telegram Posting Logic ---
+                        logger.warning("Failed to post message to Telegram.")
                 
-                logger.info(f"Successfully posted tweet: {tweet_id}")
                 return tweet_id
             else:
                 logger.warning("Failed to post tweet - no tweet ID returned")
                 return None
-        
+                
         except Exception as e:
-            logger.error(f"Error during main tweet posting logic: {e}", exc_info=True)
-            raise # Re-raise to be caught by outer handler
-        # Removed finally block for db.close() here - handle below
-
+            logger.error(f"Error in post_btc_update: {e}", exc_info=True)
+            traceback.print_exc()
+            return None
+            
     except Exception as e:
         logger.error(f"Database connection or other critical error in post_btc_update: {e}", exc_info=True)
         logger.info("Falling back to direct tweet posting...")

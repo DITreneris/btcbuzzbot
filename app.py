@@ -733,6 +733,7 @@ def admin_panel():
         news_item['parsed_significance'] = None
         news_item['parsed_sentiment'] = None
         news_item['parsed_summary'] = 'N/A'
+        news_item['tweet_url'] = f"https://twitter.com/i/web/status/{news_item.get('original_tweet_id')}" if news_item.get('original_tweet_id') else "#"
 
         raw_analysis = news_item.get('llm_raw_analysis')
         if raw_analysis:
@@ -744,8 +745,21 @@ def admin_panel():
                      analysis = json.loads(raw_analysis) # Parse if it's a string
 
                 # --- Adjust keys based on ACTUAL Groq JSON output --- 
-                significance = analysis.get('significance_score')
-                sentiment = analysis.get('sentiment_score')
+                # Support both old and new key formats based on LLM model version
+                significance = analysis.get('significance_score') or analysis.get('significance')
+                if significance and isinstance(significance, str) and significance.isdigit():
+                    significance = int(significance)
+                elif significance and isinstance(significance, str):
+                    # Convert text significance to numeric score
+                    sig_map = {"High": 8, "Medium": 5, "Low": 2}
+                    significance = sig_map.get(significance, None)
+                
+                sentiment = analysis.get('sentiment_score') or analysis.get('sentiment')
+                if sentiment and isinstance(sentiment, str):
+                    # Convert text sentiment to numeric score
+                    sent_map = {"Positive": 0.7, "Neutral": 0.0, "Negative": -0.7}
+                    sentiment = sent_map.get(sentiment, None)
+                
                 summary = analysis.get('summary', 'N/A')
                 # --- End key adjustment ---
                 
@@ -792,7 +806,7 @@ def admin_panel():
                             sentiment_by_day[day_str]['count'] += 1
                             
             except json.JSONDecodeError:
-                logger.warning(f"Failed to parse llm_raw_analysis JSON for tweet ID {news_item.get('id', 'N/A')}")
+                logger.error(f"Failed to parse llm_raw_analysis JSON for tweet ID {news_item.get('id', 'N/A')}: {raw_analysis[:100]}...")
             except Exception as parse_err:
                 logger.error(f"Error processing analysis for tweet ID {news_item.get('id', 'N/A')}: {parse_err}", exc_info=True)
                 
@@ -1238,6 +1252,62 @@ def delete_joke_route(joke_id):
     return redirect(url_for('admin_panel'))
 
 # --- END Content Management Routes ---
+
+@app.route('/admin/news/<int:news_id>')
+@limiter.limit("30 per minute")
+def view_news_analysis(news_id):
+    """Display detailed analysis for a single news tweet"""
+    logger = logging.getLogger(__name__)
+    logger.info(f"News analysis details accessed for ID: {news_id}")
+    
+    # Fetch the news tweet data
+    tweet_data = None
+    try:
+        with get_db_connection() as conn:
+            cursor_factory = RealDictCursor if IS_POSTGRES else None
+            cursor = conn.cursor(cursor_factory=cursor_factory)
+            query = "SELECT * FROM news_tweets WHERE id = %s" if IS_POSTGRES else "SELECT * FROM news_tweets WHERE id = ?"
+            cursor.execute(query, (news_id,))
+            tweet_data = cursor.fetchone()
+            cursor.close()
+            
+            if not tweet_data:
+                flash("News tweet not found.", "danger")
+                return redirect(url_for('admin_panel'))
+                
+            # Convert to dict if not already
+            if not isinstance(tweet_data, dict):
+                tweet_data = dict(tweet_data)
+            
+            # Add tweet URL
+            tweet_data['tweet_url'] = f"https://twitter.com/i/web/status/{tweet_data.get('original_tweet_id')}" if tweet_data.get('original_tweet_id') else "#"
+            
+            # Parse raw analysis JSON
+            raw_analysis = tweet_data.get('llm_raw_analysis')
+            tweet_data['parsed_analysis'] = None
+            
+            if raw_analysis:
+                try:
+                    # Parse JSON data
+                    if isinstance(raw_analysis, dict):
+                        tweet_data['parsed_analysis'] = raw_analysis
+                    else:
+                        tweet_data['parsed_analysis'] = json.loads(raw_analysis)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse llm_raw_analysis JSON for tweet ID {news_id}")
+                except Exception as e:
+                    logger.error(f"Error processing analysis for tweet ID {news_id}: {e}")
+    
+    except Exception as e:
+        logger.error(f"Error fetching news tweet with ID {news_id}: {e}", exc_info=True)
+        flash(f"Error retrieving news data: {str(e)}", "danger")
+        return redirect(url_for('admin_panel'))
+    
+    return render_template(
+        'news_analysis.html',
+        title='News Analysis Details',
+        tweet=tweet_data
+    )
 
 if __name__ == '__main__':
     # Initialize DB context if needed for other parts, or remove if unused

@@ -1,0 +1,329 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block head %}
+<style>
+    .json-viewer {
+        background-color: var(--primary-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 15px;
+        overflow-x: auto;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .json-key {
+        color: #f39c12;
+    }
+    .json-string {
+        color: #27ae60;
+    }
+    .json-number {
+        color: #3498db;
+    }
+    .json-boolean {
+        color: #e74c3c;
+    }
+    .json-null {
+        color: #7f8c8d;
+    }
+    .tweet-card {
+        background-color: var(--primary-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .analysis-card {
+        background-color: var(--primary-dark);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    .metadata-list {
+        list-style-type: none;
+        padding: 0;
+    }
+    .metadata-list li {
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .metadata-list li:last-child {
+        border-bottom: none;
+    }
+    .significance-high {
+        color: #e74c3c;
+    }
+    .significance-medium {
+        color: #f39c12;
+    }
+    .significance-low {
+        color: #7f8c8d;
+    }
+    .sentiment-positive {
+        color: #27ae60;
+    }
+    .sentiment-negative {
+        color: #e74c3c;
+    }
+    .sentiment-neutral {
+        color: #7f8c8d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>News Analysis Details</h1>
+        <a href="{{ url_for('admin_panel') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Admin
+        </a>
+    </div>
+
+    {% if tweet %}
+    <!-- Tweet Information -->
+    <div class="row">
+        <div class="col-md-8">
+            <div class="tweet-card mb-4">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <h5><i class="fab fa-twitter text-info"></i> Tweet Content</h5>
+                    <a href="{{ tweet.tweet_url }}" target="_blank" class="btn btn-sm btn-primary">
+                        <i class="fas fa-external-link-alt"></i> View on Twitter
+                    </a>
+                </div>
+                <p class="mb-3">{{ tweet.text }}</p>
+                <div class="text-muted small">
+                    <span><i class="fas fa-user"></i> Author ID: {{ tweet.author_id }}</span> | 
+                    <span><i class="fas fa-calendar"></i> Published: {{ tweet.published_at | format_datetime }}</span> | 
+                    <span><i class="fas fa-database"></i> Fetched: {{ tweet.fetched_at | format_datetime }}</span>
+                </div>
+            </div>
+
+            <!-- Analysis Results -->
+            <div class="analysis-card">
+                <h5 class="mb-3"><i class="fas fa-chart-line"></i> Analysis Results</h5>
+                
+                {% if tweet.parsed_analysis %}
+                <div class="row mb-4">
+                    <!-- Significance -->
+                    <div class="col-md-4 text-center">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6>Significance</h6>
+                                {% set significance = tweet.parsed_analysis.get('significance_score') or tweet.parsed_analysis.get('significance') %}
+                                {% if significance is not none %}
+                                    {% if significance is string %}
+                                        {% set significance_class = 'significance-high' if significance == 'High' else ('significance-medium' if significance == 'Medium' else 'significance-low') %}
+                                        <h3 class="{{ significance_class }}">{{ significance }}</h3>
+                                    {% else %}
+                                        {% set significance_class = 'significance-high' if significance >= 7 else ('significance-medium' if significance >= 4 else 'significance-low') %}
+                                        <h3 class="{{ significance_class }}">{{ significance }}/10</h3>
+                                    {% endif %}
+                                {% else %}
+                                    <h3 class="text-muted">N/A</h3>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Sentiment -->
+                    <div class="col-md-4 text-center">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6>Sentiment</h6>
+                                {% set sentiment = tweet.parsed_analysis.get('sentiment_score') or tweet.parsed_analysis.get('sentiment') %}
+                                {% if sentiment is not none %}
+                                    {% if sentiment is string %}
+                                        {% set sentiment_class = 'sentiment-positive' if sentiment == 'Positive' else ('sentiment-negative' if sentiment == 'Negative' else 'sentiment-neutral') %}
+                                        <h3 class="{{ sentiment_class }}">{{ sentiment }}</h3>
+                                    {% else %}
+                                        {% set sentiment_class = 'sentiment-positive' if sentiment > 0.1 else ('sentiment-negative' if sentiment < -0.1 else 'sentiment-neutral') %}
+                                        <h3 class="{{ sentiment_class }}">{{ sentiment | round(2) }}</h3>
+                                    {% endif %}
+                                {% else %}
+                                    <h3 class="text-muted">N/A</h3>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Processing Status -->
+                    <div class="col-md-4 text-center">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6>Status</h6>
+                                {% if tweet.processed %}
+                                    <h3 class="text-success">Processed</h3>
+                                {% else %}
+                                    <h3 class="text-warning">Unprocessed</h3>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Summary -->
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h6><i class="fas fa-file-alt"></i> Summary</h6>
+                        <p class="lead">{{ tweet.parsed_analysis.get('summary', 'No summary available.') }}</p>
+                    </div>
+                </div>
+                
+                <!-- Raw Analysis JSON -->
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="fas fa-code"></i> Raw Analysis JSON</h6>
+                        <button class="btn btn-sm btn-secondary" id="toggleJson">
+                            <i class="fas fa-arrows-alt-v"></i> Toggle View
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <pre id="jsonViewer" class="json-viewer">{{ tweet.llm_raw_analysis }}</pre>
+                    </div>
+                </div>
+                {% else %}
+                <div class="alert alert-warning">
+                    No analysis data available for this tweet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Metadata Sidebar -->
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-info-circle"></i> Tweet Metadata</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="metadata-list">
+                        <li><strong>Database ID:</strong> {{ tweet.id }}</li>
+                        <li><strong>Tweet ID:</strong> {{ tweet.original_tweet_id }}</li>
+                        <li><strong>Published:</strong> {{ tweet.published_at | format_datetime }}</li>
+                        <li><strong>Fetched:</strong> {{ tweet.fetched_at | format_datetime }}</li>
+                        <li><strong>Source:</strong> {{ tweet.source or 'Unknown' }}</li>
+                        <li><strong>Processed:</strong> <span class="badge {{ 'bg-success' if tweet.processed else 'bg-warning' }}">{{ 'Yes' if tweet.processed else 'No' }}</span></li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Metrics Card (if available) -->
+            {% if tweet.metrics %}
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Engagement Metrics</h5>
+                </div>
+                <div class="card-body">
+                    {% set metrics = tweet.metrics %}
+                    {% if metrics is string %}
+                        {% set metrics = metrics | tojson | safe | replace("'", '"') %}
+                        {% set metrics = metrics | fromjson %}
+                    {% endif %}
+                    
+                    <div class="d-flex justify-content-between mb-2">
+                        <div class="text-center">
+                            <i class="fas fa-heart text-danger"></i>
+                            <div>{{ metrics.get('like_count', 0) }}</div>
+                            <small>Likes</small>
+                        </div>
+                        <div class="text-center">
+                            <i class="fas fa-retweet text-success"></i>
+                            <div>{{ metrics.get('retweet_count', 0) }}</div>
+                            <small>Retweets</small>
+                        </div>
+                        <div class="text-center">
+                            <i class="fas fa-reply text-info"></i>
+                            <div>{{ metrics.get('reply_count', 0) }}</div>
+                            <small>Replies</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Impression count if available -->
+                    {% if metrics.get('impression_count') %}
+                    <div class="text-center mt-3">
+                        <i class="fas fa-eye"></i>
+                        <div>{{ metrics.get('impression_count', 0) }}</div>
+                        <small>Impressions</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-danger">
+        <h4><i class="fas fa-exclamation-triangle"></i> Error</h4>
+        <p>Tweet not found or error loading tweet data.</p>
+        <a href="{{ url_for('admin_panel') }}" class="btn btn-primary mt-2">Return to Admin Panel</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Function to format JSON for display
+    function formatJSON(jsonStr) {
+        if (!jsonStr) return "No data available";
+        
+        let json;
+        if (typeof jsonStr === 'object') {
+            json = jsonStr;
+        } else {
+            try {
+                json = JSON.parse(jsonStr);
+            } catch (e) {
+                return jsonStr; // Return as-is if not valid JSON
+            }
+        }
+        
+        return JSON.stringify(json, null, 4)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
+                let cls = 'json-number';
+                if (/^"/.test(match)) {
+                    if (/:$/.test(match)) {
+                        cls = 'json-key';
+                    } else {
+                        cls = 'json-string';
+                    }
+                } else if (/true|false/.test(match)) {
+                    cls = 'json-boolean';
+                } else if (/null/.test(match)) {
+                    cls = 'json-null';
+                }
+                return '<span class="' + cls + '">' + match + '</span>';
+            });
+    }
+    
+    // Format JSON in the viewer
+    const jsonViewer = document.getElementById('jsonViewer');
+    if (jsonViewer) {
+        const rawJson = jsonViewer.textContent;
+        jsonViewer.innerHTML = formatJSON(rawJson);
+    }
+    
+    // Toggle JSON viewer height
+    const toggleBtn = document.getElementById('toggleJson');
+    if (toggleBtn && jsonViewer) {
+        toggleBtn.addEventListener('click', function() {
+            if (jsonViewer.style.maxHeight === 'none') {
+                jsonViewer.style.maxHeight = '400px';
+                toggleBtn.innerHTML = '<i class="fas fa-arrows-alt-v"></i> Expand';
+            } else {
+                jsonViewer.style.maxHeight = 'none';
+                toggleBtn.innerHTML = '<i class="fas fa-compress-alt"></i> Collapse';
+            }
+        });
+    }
+});
+</script>
+{% endblock %} 
