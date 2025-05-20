@@ -178,16 +178,18 @@ class NewsRepository:
             return None # Return None on error
 
     async def get_recent_analyzed_news(self, hours_limit: int = 12) -> List[Dict[str, Any]]:
-        """Get recently analyzed news tweets (processed=True)."""
+        """Get recently analyzed news tweets, ordered by significance and recency."""
         tweets = []
         try:
             if self.is_postgres:
                 sql = """
-                SELECT original_tweet_id, llm_analysis 
+                SELECT original_tweet_id, text, summary, significance_label, significance_score, 
+                       sentiment_label, sentiment_score, sentiment_source, llm_raw_analysis, published_at
                 FROM news_tweets 
                 WHERE processed = TRUE 
-                AND fetched_at::timestamptz >= NOW() - INTERVAL '%s hours'
-                ORDER BY fetched_at DESC;
+                  AND significance_score IS NOT NULL 
+                  AND published_at >= NOW() - INTERVAL '%s hours'
+                ORDER BY significance_score DESC, published_at DESC;
                 """
                 conn = self._get_postgres_connection()
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -198,20 +200,21 @@ class NewsRepository:
                 tweets = [dict(row) for row in rows]
             else:
                 sql = """
-                SELECT original_tweet_id, llm_analysis 
+                SELECT original_tweet_id, text, summary, significance_label, significance_score, 
+                       sentiment_label, sentiment_score, sentiment_source, llm_raw_analysis, published_at
                 FROM news_tweets 
                 WHERE processed = 1 
-                AND datetime(fetched_at) >= datetime('now', ? || ' hours')
-                ORDER BY fetched_at DESC;
+                  AND significance_score IS NOT NULL 
+                  AND datetime(published_at) >= datetime('now', ? || ' hours')
+                ORDER BY significance_score DESC, published_at DESC;
                 """
                 async with aiosqlite.connect(self.db_path) as db:
-                    db.row_factory = aiosqlite.Row
+                    db.row_factory = aiosqlite.Row # Ensure results are dict-like
                     async with db.execute(sql, (f"-{hours_limit}",)) as cursor:
                         rows = await cursor.fetchall()
-                        tweets = [dict(row) for row in rows]
+                        tweets = [dict(row) for row in rows] # Convert rows to dicts
         except Exception as e:
             logger.error(f"Error fetching recent analyzed news: {e}", exc_info=True)
-            # Return empty list on error, let caller handle
         return tweets
 
     async def get_unprocessed_news_tweets(self, limit: int = 50) -> List[Dict[str, Any]]:
@@ -253,54 +256,95 @@ class NewsRepository:
     async def update_tweet_analysis(
         self,
         original_tweet_id: str,
-        status: str, # Add status parameter ('analyzed', 'analysis_failed', 'analysis_timeout')
-        analysis_data: Optional[Dict[str, Any]] = None, # Renamed llm_analysis for clarity
-        error_message: Optional[str] = None # Optionally store error details
+        status: str, 
+        analysis_data: Optional[Dict[str, Any]] = None, 
+        error_message: Optional[str] = None 
     ):
         """Update analysis fields and processing status based on provided status."""
         if not original_tweet_id:
             logger.warning("Attempted to update analysis with missing original_tweet_id.")
             return False
 
-        update_fields = []
-        params = []
+        update_fields_set = []
+        params_list = []
 
-        # Set llm_analysis field only if status is 'analyzed' and data is present
-        if status == "analyzed" and analysis_data is not None:
-            update_fields.append("llm_analysis = %s" if self.is_postgres else "llm_analysis = ?")
-            params.append(json.dumps(analysis_data))
-            update_fields.append("processed = TRUE" if self.is_postgres else "processed = 1")
+        processed_val = True # Mark as processed for all handled statuses
+
+        if status == "analyzed" and analysis_data:
+            update_fields_set.append("processed = %s" if self.is_postgres else "processed = ?")
+            params_list.append(processed_val)
+
+            # Store raw LLM analysis (if primarily from Groq and available)
+            # analysis_data itself is the dict from _analyze_content_with_llm
+            update_fields_set.append("llm_analysis = %s" if self.is_postgres else "llm_analysis = ?")
+            params_list.append(json.dumps(analysis_data))
+
+            sentiment_label = analysis_data.get("sentiment")
+            significance_label = analysis_data.get("significance")
+            summary_text = analysis_data.get("summary")
+            sentiment_src = analysis_data.get("sentiment_source", "unknown")
+
+            update_fields_set.append("sentiment_label = %s" if self.is_postgres else "sentiment_label = ?")
+            params_list.append(sentiment_label)
+            update_fields_set.append("significance_label = %s" if self.is_postgres else "significance_label = ?")
+            params_list.append(significance_label)
+            update_fields_set.append("summary = %s" if self.is_postgres else "summary = ?")
+            params_list.append(summary_text)
+            update_fields_set.append("sentiment_source = %s" if self.is_postgres else "sentiment_source = ?")
+            params_list.append(sentiment_src)
+
+            # Map sentiment label to score
+            sentiment_score_val = None
+            if sentiment_label == "Positive":
+                sentiment_score_val = 0.7
+            elif sentiment_label == "Negative":
+                sentiment_score_val = -0.7
+            elif sentiment_label == "Neutral":
+                sentiment_score_val = 0.0
+            update_fields_set.append("sentiment_score = %s" if self.is_postgres else "sentiment_score = ?")
+            params_list.append(sentiment_score_val)
+
+            # Map significance label to score
+            significance_score_val = None
+            if significance_label == "High":
+                significance_score_val = 1.0
+            elif significance_label == "Medium":
+                significance_score_val = 0.5
+            elif significance_label == "Low":
+                significance_score_val = 0.1
+            update_fields_set.append("significance_score = %s" if self.is_postgres else "significance_score = ?")
+            params_list.append(significance_score_val)
+
         elif status in ["analysis_failed", "analysis_timeout"]:
-            # Mark as processed=TRUE even on failure/timeout to avoid reprocessing
-            update_fields.append("processed = TRUE" if self.is_postgres else "processed = 1")
-            # Optionally store an error or status marker if schema allows
-            # For now, just setting processed=TRUE
-            # If error_message and a column exists:
-            # update_fields.append("error_info = %s" if self.is_postgres else "error_info = ?")
-            # params.append(error_message)
-            logger.info(f"Marking tweet {original_tweet_id} as processed with status: {status}")
+            update_fields_set.append("processed = %s" if self.is_postgres else "processed = ?")
+            params_list.append(processed_val)
+            # Set sentiment_source to reflect failure type if not already set by Groq/VADER path
+            # The _analyze_content_with_llm should set a source even on failure, but this is a safety net.
+            current_sentiment_source = analysis_data.get("sentiment_source") if analysis_data else status
+            if error_message and not analysis_data: # If analysis_data is None, means a higher level failure before _analyze_content_with_llm
+                 current_sentiment_source = status # e.g. analysis_failed from a higher level
+
+            update_fields_set.append("sentiment_source = %s" if self.is_postgres else "sentiment_source = ?")
+            params_list.append(current_sentiment_source) 
+            logger.info(f"Marking tweet {original_tweet_id} as processed with status: {status}, source: {current_sentiment_source}")
+            # Other analysis fields will remain NULL or their defaults
         else:
              logger.warning(f"Invalid status '{status}' provided for tweet {original_tweet_id}. Not updating.")
-             return False # Invalid status
+             return False
 
-        # Always mark as processed and update timestamp
-        # update_fields.append("processed = TRUE" if self.is_postgres else "processed = 1")
-        # --- End removal ---
-
-        if not update_fields:
-            # This case should ideally not be reached with the new logic
-            logger.warning(f"No fields to update for tweet {original_tweet_id} with status {status}.")
+        if not update_fields_set:
+            logger.warning(f"No fields to update for tweet {original_tweet_id} with status {status}. This might indicate an issue.")
             return False
 
-        params.append(original_tweet_id) # Add the ID for the WHERE clause
+        params_list.append(original_tweet_id) 
 
         sql_query = f"""
             UPDATE news_tweets 
-            SET {', '.join(update_fields)}
+            SET {', '.join(update_fields_set)}
             WHERE original_tweet_id = %s
             """ if self.is_postgres else f"""
             UPDATE news_tweets 
-            SET {', '.join(update_fields)}
+            SET {', '.join(update_fields_set)}
             WHERE original_tweet_id = ?
             """
 
@@ -309,14 +353,14 @@ class NewsRepository:
             if self.is_postgres:
                 conn = self._get_postgres_connection()
                 cursor = conn.cursor()
-                cursor.execute(sql_query, tuple(params))
+                cursor.execute(sql_query, tuple(params_list))
                 rows_affected = cursor.rowcount
                 conn.commit()
                 cursor.close()
                 conn.close()
             else:
                 async with aiosqlite.connect(self.db_path) as db:
-                    cursor = await db.execute(sql_query, tuple(params))
+                    cursor = await db.execute(sql_query, tuple(params_list))
                     await db.commit()
                     rows_affected = cursor.rowcount
             

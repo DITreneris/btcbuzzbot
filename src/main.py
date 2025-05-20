@@ -13,8 +13,55 @@ from src.twitter_client import TwitterClient
 from src.content_manager import ContentManager
 from src.config import Config
 from src.discord_poster import send_discord_message
+from src.telegram_poster import send_telegram_message
 
 logger = logging.getLogger(__name__)
+
+def _format_news_tweet(current_price: float, price_change: float, news_item: dict) -> str:
+    """Formats a tweet string based on news significance and sentiment."""
+    summary = news_item.get('summary', "No summary available.")
+    significance = news_item.get('significance_label', "Medium").lower()
+    sentiment = news_item.get('sentiment_label', "Neutral").lower()
+
+    emoji = ""
+    template = ""
+
+    # Base price string
+    price_str = f"BTC: ${current_price:,.2f} | {price_change:+.2f}%"
+
+    if significance == "high":
+        if sentiment == "positive":
+            emoji = "🚀"
+            template = f"{price_str} {emoji}\n🔥 BIG NEWS for #Bitcoin! {summary} #CryptoNews"
+        elif sentiment == "negative":
+            emoji = "⚠️"
+            template = f"{price_str} {emoji}\n🚨 Critical #Bitcoin Update! {summary} #CryptoAlert"
+        else: # Neutral or other
+            emoji = "📰"
+            template = f"{price_str} {emoji}\n📢 Key #Bitcoin Development: {summary} #BTCNews"
+    elif significance == "medium":
+        if sentiment == "positive":
+            emoji = "📈"
+            template = f"{price_str} {emoji}\n👍 Positive #Bitcoin Signal: {summary} #Crypto"
+        elif sentiment == "negative":
+            emoji = "📉" # Could also be a more neutral warning for medium sig
+            template = f"{price_str} {emoji}\n❗ Notable #Bitcoin Update (Caution): {summary} #BTC"
+        else: # Neutral or other
+            emoji = "📊"
+            template = f"{price_str} {emoji}\n🔍 #Bitcoin Update: {summary} #CryptoReport"
+    else: # Low significance or undefined
+        if sentiment == "positive":
+            emoji = "💡"
+        elif sentiment == "negative":
+            emoji = "🧐"
+        else:
+            emoji = "➡️"
+        # Simpler template for low significance
+        template = f"{price_str} {emoji}\n{summary} #Bitcoin"
+
+    # Log the chosen template parts for debugging
+    logger.debug(f"Formatted news tweet - Significance: {significance}, Sentiment: {sentiment}, Emoji: {emoji}, Template used: {template.split('\n')[1][:50]}...")
+    return template
 
 async def post_direct_tweet():
     """Post a direct tweet without database dependencies"""
@@ -118,62 +165,88 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             # --- Determine Tweet Content based on Schedule ---
             tweet = ""
             content_type = "price_only" # Default, will be updated
-            use_fallback_content = True # Assume fallback unless significant news found
+            use_fallback_content = True # Assume fallback unless suitable news found
 
             # For ALL scheduled times, try to use news summary first
-            logger.info(f"Scheduled time is {scheduled_time_str or 'other'}. Checking for significant news...")
-            significant_news_summary = None
-            SIGNIFICANCE_THRESHOLD = 5 # Define the threshold
-            NEWS_HOURS_LIMIT = 12 # How far back to look for news
+            logger.info(f"Scheduled time is {scheduled_time_str or 'other'}. Checking for suitable news...")
+            selected_news_content = None # Will store dict of the selected news item
+            NEWS_HOURS_LIMIT = config.news_hours_limit # Get from config
+
+            # Define Significance Score Thresholds (Consider making these configurable)
+            HIGH_SIG_SCORE_THRESHOLD = 0.8 # e.g., for "High"
+            MEDIUM_SIG_SCORE_THRESHOLD = 0.4 # e.g., for "Medium"
+            # LOW_SIG_SCORE_THRESHOLD = 0.1 # Not explicitly used if we iterate top-down
             
             try:
-                # Use NewsRepository here
                 recent_analyzed_news = await news_repo.get_recent_analyzed_news(hours_limit=NEWS_HOURS_LIMIT)
-                for news_item in recent_analyzed_news:
-                    raw_analysis = news_item.get('llm_raw_analysis')
-                    if raw_analysis:
-                         try:
-                            # Parse the JSON analysis
-                            analysis_data = json.loads(raw_analysis)
-                            significance = analysis_data.get('significance_score')
-                            summary = analysis_data.get('summary')
-                            
-                            # Check significance threshold
-                            if significance is not None and summary:
-                                try:
-                                     if int(significance) >= SIGNIFICANCE_THRESHOLD:
-                                         significant_news_summary = summary
-                                         logger.info(f"Found significant news (Score: {significance}) from tweet {news_item['original_tweet_id']}. Using its summary.")
-                                         break # Use the first significant summary found (most recent)
-                                except (ValueError, TypeError):
-                                     logger.warning(f"Could not parse significance score '{significance}' as int for tweet {news_item['original_tweet_id']}")
-                         except json.JSONDecodeError:
-                             logger.warning(f"Could not decode JSON analysis for tweet {news_item['original_tweet_id']}")
-                         except Exception as e_parse:
-                              logger.error(f"Error parsing analysis for {news_item['original_tweet_id']}: {e_parse}")
-            except Exception as e_db:
-                 logger.error(f"Error fetching recent analyzed news from repo: {e_db}", exc_info=True)
+                logger.info(f"Found {len(recent_analyzed_news)} recently analyzed news items for potential use.")
 
-            # --- Generate tweet based on whether significant news was found ---
-            if significant_news_summary:
-                emoji = "📈" if price_change >= 0 else "📉"
-                # Format tweet with news summary
-                tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{significant_news_summary}\n#Bitcoin #News"
-                content_type = 'news_summary'
-                use_fallback_content = False # News found, don't use fallback
+                for news_item in recent_analyzed_news:
+                    # news_item is now a dict with structured fields from get_recent_analyzed_news
+                    sig_score = news_item.get('significance_score')
+                    sentiment_label = news_item.get('sentiment_label')
+                    summary = news_item.get('summary')
+                    news_text = news_item.get('text') # Full text for context if needed
+                    sentiment_source = news_item.get('sentiment_source')
+                    original_tweet_id = news_item.get('original_tweet_id')
+
+                    if not summary: # Essential for the tweet
+                        logger.debug(f"Skipping news {original_tweet_id}: missing summary.")
+                        continue
+                    
+                    logger.debug(f"Evaluating news {original_tweet_id}: Sig Score: {sig_score}, Sentiment: {sentiment_label}, Source: {sentiment_source}")
+
+                    # Decision logic based on significance and sentiment
+                    use_this_news = False
+                    if sig_score is not None:
+                        if sig_score >= HIGH_SIG_SCORE_THRESHOLD:
+                            use_this_news = True
+                            logger.info(f"Selected news {original_tweet_id} due to HIGH significance ({sig_score}).")
+                        elif sig_score >= MEDIUM_SIG_SCORE_THRESHOLD:
+                            if sentiment_label in ["Positive", "Neutral"]:
+                                use_this_news = True
+                                logger.info(f"Selected news {original_tweet_id} due to MEDIUM significance ({sig_score}) and Positive/Neutral sentiment.")
+                            else:
+                                logger.debug(f"Skipping news {original_tweet_id}: MEDIUM significance but sentiment ({sentiment_label}) not Positive/Neutral.")
+                        # else: (Low significance)
+                            # logger.debug(f"Skipping news {original_tweet_id}: LOW significance ({sig_score}).")
+                    
+                    # Optional: Add stricter rules if sentiment_source is a fallback
+                    if use_this_news and sentiment_source and "vader_fallback" in sentiment_source:
+                        # Example: only use if HIGH significance for VADER fallbacks
+                        if sig_score < HIGH_SIG_SCORE_THRESHOLD:
+                            logger.info(f"De-selecting news {original_tweet_id}: VADER fallback sentiment and not HIGH significance.")
+                            use_this_news = False
+
+                    if use_this_news:
+                        selected_news_content = news_item # Store the whole dict
+                        break # Found suitable news, stop iterating
+                
+                if not selected_news_content:
+                    logger.info("No suitable news item found after evaluating recent analyses.")
+
+            except Exception as e_news_select:
+                 logger.error(f"Error during news selection logic: {e_news_select}", exc_info=True)
+                 # Ensure selected_news_content remains None or is reset if error occurs mid-selection
+                 selected_news_content = None 
+
+            # --- Generate tweet based on whether suitable news was found ---
+            if selected_news_content and selected_news_content.get('summary'):
+                # Use the new helper function to format the tweet
+                tweet = _format_news_tweet(current_price, price_change, selected_news_content)
+                content_type = 'news_summary' # Keep track of content type
+                use_fallback_content = False
+                logger.info(f"Using formatted news tweet (Original ID: {selected_news_content.get('original_tweet_id')}).")
             
-            # Fallback to random content if no significant news found OR if use_fallback_content is still True
             if use_fallback_content:
-                logger.info("No significant news found or fallback required. Falling back to random content.")
-                # ContentManager is already initialized above
+                logger.info("No suitable news found or fallback explicitly required. Falling back to random content.")
                 content = await content_manager.get_random_content()
                 if content:
+                    # For fallback content, emoji is based purely on price change
                     emoji = "📈" if price_change >= 0 else "📉"
-                    # Format tweet with random content
                     tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n{content['text']}\n#Bitcoin #Crypto"
                     content_type = content["type"]
                 else:
-                    # Fallback if random content also fails
                     logger.warning("Failed to get random content. Falling back to price-only tweet.")
                     emoji = "📈" if price_change >= 0 else "📉"
                     tweet = f"BTC: ${current_price:,.2f} | {price_change:+.2f}% {emoji}\n#Bitcoin #Price"
@@ -219,6 +292,24 @@ async def post_btc_update(config=None, scheduled_time_str=None):
                     else:
                         logger.warning("Discord posting enabled, but DISCORD_WEBHOOK_URL is not set.")
                 # --- End Discord Posting Logic ---
+                
+                # --- Add Telegram Posting Logic ---
+                if config.enable_telegram_posting:
+                    if config.telegram_bot_token and config.telegram_chat_id:
+                        logger.info("Telegram posting enabled. Sending message...")
+                        # Send the same text as the tweet
+                        telegram_success = await send_telegram_message(
+                            config.telegram_bot_token,
+                            config.telegram_chat_id,
+                            tweet
+                        )
+                        if telegram_success:
+                            logger.info("Successfully posted message to Telegram.")
+                        else:
+                            logger.warning("Failed to post message to Telegram.")
+                    else:
+                        logger.warning("Telegram posting enabled, but bot token or chat ID is not set.")
+                # --- End Telegram Posting Logic ---
                 
                 logger.info(f"Successfully posted tweet: {tweet_id}")
                 return tweet_id

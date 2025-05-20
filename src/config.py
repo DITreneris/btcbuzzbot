@@ -93,6 +93,7 @@ class Config:
         self.llm_analyze_max_tokens = int(os.environ.get('LLM_ANALYZE_MAX_TOKENS', '150'))
         self.news_analysis_batch_size = int(os.environ.get('NEWS_ANALYSIS_BATCH_SIZE', '30'))
         self.news_processing_timeout_seconds = int(os.environ.get('NEWS_PROCESSING_TIMEOUT_SECONDS', '300'))
+        self.news_hours_limit = int(os.environ.get('NEWS_HOURS_LIMIT', '12')) # How many hours back to look for analyzed news
 
         # Duplicate Post Check Config
         self.duplicate_post_check_minutes = int(os.environ.get('DUPLICATE_POST_CHECK_MINUTES', '5'))
@@ -108,6 +109,11 @@ class Config:
         # Add Discord Config Variables
         self.enable_discord_posting = os.environ.get('ENABLE_DISCORD_POSTING', 'False').lower() == 'true'
         self.discord_webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
+        
+        # Add Telegram Config Variables
+        self.enable_telegram_posting = os.environ.get('ENABLE_TELEGRAM_POSTING', 'false').lower() == 'true'
+        self.telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+        self.telegram_chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
 
         # Call the correct validation method
         self.validate()
@@ -154,13 +160,17 @@ class Config:
             "llm_analyze_max_tokens": self.llm_analyze_max_tokens,
             "news_analysis_batch_size": self.news_analysis_batch_size,
             "news_processing_timeout_seconds": self.news_processing_timeout_seconds,
+            "news_hours_limit": self.news_hours_limit,
             "duplicate_post_check_minutes": self.duplicate_post_check_minutes,
             "content_reuse_days": self.content_reuse_days,
             "admin_username": self.admin_username,
             "admin_password_hash": "***REDACTED***",
             "secret_key": self.secret_key,
             "enable_discord_posting": self.enable_discord_posting,
-            "discord_webhook_url": self.discord_webhook_url
+            "discord_webhook_url": self.discord_webhook_url,
+            "enable_telegram_posting": self.enable_telegram_posting,
+            "telegram_bot_token": self.telegram_bot_token,
+            "telegram_chat_id": self.telegram_chat_id
         }
         
     def __str__(self) -> str:
