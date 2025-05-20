@@ -302,14 +302,6 @@
         </div>
     </div>
 
-    <!-- Price History Chart Placeholder -->
-    <div class="card mb-4">
-        <div class="card-header">Price History (Last 7 Days)</div>
-        <div class="card-body">
-            <canvas id="priceChart"></canvas>
-        </div>
-    </div>
-
     <hr class="my-4">
     <h2>Content Management</h2>
 
@@ -444,78 +436,6 @@ document.addEventListener('DOMContentLoaded', function() {
         neutral: 'rgba(108, 117, 125, 0.7)',
         price: 'rgba(255, 193, 7, 0.7)'
     };
-    
-    // Configure price history chart
-    const priceCtx = document.getElementById('priceChart').getContext('2d');
-    const priceData = [
-        {% for price in price_history %}
-            {
-                x: '{{ price.timestamp | format_datetime }}',
-                y: {{ price.price }}
-            },
-        {% endfor %}
-    ];
-    
-    new Chart(priceCtx, {
-        type: 'line',
-        data: {
-            datasets: [{
-                label: 'BTC Price (USD)',
-                data: priceData,
-                borderColor: chartColors.price,
-                backgroundColor: chartColors.price,
-                tension: 0.1,
-                pointRadius: 2
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            scales: {
-                x: {
-                    type: 'time',
-                    time: {
-                        unit: 'day',
-                        tooltipFormat: 'MMM dd, yyyy'
-                    },
-                    title: {
-                        display: true,
-                        text: 'Date'
-                    },
-                    grid: {
-                        color: chartColors.gridColor
-                    },
-                    ticks: {
-                        color: chartColors.textColor
-                    }
-                },
-                y: {
-                    title: {
-                        display: true,
-                        text: 'USD'
-                    },
-                    grid: {
-                        color: chartColors.gridColor
-                    },
-                    ticks: {
-                        color: chartColors.textColor,
-                        callback: function(value) {
-                            return '$' + value.toLocaleString();
-                        }
-                    }
-                }
-            },
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return '$' + context.parsed.y.toLocaleString();
-                        }
-                    }
-                }
-            }
-        }
-    });
     
     // Configure sentiment trend chart
     const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');

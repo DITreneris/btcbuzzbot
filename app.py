@@ -655,6 +655,17 @@ def post_tweet():
         print(f"Error in post_tweet function: {e}")
         return False, {'error': str(e)}
 
+def get_platform_status():
+    """Return status for Discord and Telegram integrations for the status panel."""
+    from src.config import Config
+    config = Config()
+    discord_connected = bool(config.enable_discord_posting and config.discord_webhook_url)
+    telegram_connected = bool(config.enable_telegram_posting and config.telegram_bot_token and config.telegram_chat_id)
+    return {
+        'discord': 'Connected' if discord_connected else 'Not Connected',
+        'telegram': 'Connected' if telegram_connected else 'Not Connected',
+    }
+
 # Routes - Home and About
 @app.route('/')
 def home():
@@ -1307,6 +1318,15 @@ def view_news_analysis(news_id):
         'news_analysis.html',
         title='News Analysis Details',
         tweet=tweet_data
+    )
+
+@app.context_processor
+def inject_status_panel():
+    """Inject platform status for the status panel in the base template."""
+    platform_status = get_platform_status()
+    return dict(
+        discord_status=platform_status['discord'],
+        telegram_status=platform_status['telegram']
     )
 
 if __name__ == '__main__':
