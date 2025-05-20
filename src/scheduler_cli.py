@@ -9,11 +9,9 @@ import logging
 import asyncio
 import signal
 
-# Ensure src is in the path
-if 'src' not in sys.path and os.path.exists('src'):
-     sys.path.insert(0, os.path.abspath('.'))
-elif os.path.basename(os.getcwd()) == 'src':
-     sys.path.insert(0, os.path.abspath('..'))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 # Engine control functions
 try:
