@@ -60,7 +60,9 @@ def _format_news_tweet(current_price: float, price_change: float, news_item: dic
         template = f"{price_str} {emoji}\n{summary} #Bitcoin"
 
     # Log the chosen template parts for debugging
-    logger.debug(f"Formatted news tweet - Significance: {significance}, Sentiment: {sentiment}, Emoji: {emoji}, Template used: {template.split('\n')[1][:50]}...")
+    template_lines = template.split('\n')
+    log_template_preview = template_lines[1][:50] if len(template_lines) > 1 else template_lines[0][:50]
+    logger.debug(f"Formatted news tweet - Significance: {significance}, Sentiment: {sentiment}, Emoji: {emoji}, Template used: {log_template_preview}...")
     return template
 
 async def post_direct_tweet():
