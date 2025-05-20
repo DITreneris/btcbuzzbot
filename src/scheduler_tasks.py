@@ -10,12 +10,11 @@ import datetime
 import pytz
 import random
 
-# Ensure src is in the path if running directly or imported
-if 'src' not in sys.path and os.path.exists('src'):
-     sys.path.insert(0, os.path.abspath('.'))
-elif os.path.basename(os.getcwd()) == 'src':
-     # If running from within src, need to go up one level for imports
-     sys.path.insert(0, os.path.abspath('..'))
+# Ensure the project root (parent of 'src') is in sys.path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root_dir = os.path.abspath(os.path.join(current_dir, '..'))
+if project_root_dir not in sys.path:
+    sys.path.insert(0, project_root_dir)
 
 # --- Project Imports with error handling ---
 try:
