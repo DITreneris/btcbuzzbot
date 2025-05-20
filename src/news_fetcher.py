@@ -141,12 +141,18 @@ class NewsFetcher:
 
                     processed_tweets.append({
                         "original_tweet_id": str(tweet.id),
-                        "author": author_username,
-                        "tweet_text": tweet.text,
-                        "tweet_url": tweet_url,
+                        "author_id": str(tweet.author_id) if tweet.author_id else None,
+                        "text": tweet.text,
                         "published_at": published_at_iso,
-                        "fetched_at": fetched_at
-                        # Optional fields like is_news, score, etc., will be added later by analyzer
+                        "fetched_at": fetched_at,
+                        "metrics": tweet.public_metrics if tweet.public_metrics else {},
+                        "source": "twitter_v2_search_recent_fetch_tweets_method",
+                        "processed": False,
+                        "sentiment_score": None,
+                        "sentiment_label": None,
+                        "keywords": None,
+                        "summary": None,
+                        "llm_analysis": None
                     })
                 logger.info(f"Successfully fetched {len(processed_tweets)} tweets.")
             else:
@@ -250,25 +256,44 @@ class NewsFetcher:
                 if created_at_aware.tzinfo is None:
                     created_at_aware = created_at_aware.replace(tzinfo=timezone.utc)
                 
-                tweet_data = {
+                tweet_data_to_store = {
                     "original_tweet_id": str(tweet.id),
-                    "author_id": str(tweet.author_id),
+                    "author_id": str(tweet.author_id) if tweet.author_id else None,
                     "text": tweet.text,
                     "published_at": created_at_aware.isoformat(),
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
-                    "metrics": tweet.public_metrics,
-                    "source": "twitter_search"
+                    "metrics": tweet.public_metrics if tweet.public_metrics else {},
+                    "source": "twitter_v2_search_recent", 
+                    # These fields will be populated by the analyzer
+                    "processed": False,
+                    "sentiment_score": None,
+                    "sentiment_label": None,
+                    "keywords": None,
+                    "summary": None,
+                    "llm_analysis": None
                 }
-                tweets_to_store.append(tweet_data)
+                tweets_to_store.append(tweet_data_to_store)
 
-            await self.store_fetched_tweets(tweets_to_store)
-
-        except tweepy.errors.RateLimitError as e:
-             logger.warning(f"Twitter rate limit hit during fetch_and_store_tweets: {e}. Skipping.")
-        except tweepy.errors.TweepyException as e:
-             logger.error(f"Twitter API error during fetch_and_store_tweets: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Unexpected error during fetch_and_store_tweets: {e}", exc_info=True)
+            for tweet_to_store_data in tweets_to_store:
+                try:
+                    # Pass the fully prepared dictionary
+                    inserted_id = await self.news_repo.store_news_tweet(tweet_to_store_data)
+                    if inserted_id:
+                        stored_count += 1
+                        logger.debug(f"Stored tweet {tweet_to_store_data['original_tweet_id']} with DB ID {inserted_id}")
+                    # else: store_news_tweet handles logging for duplicates/missing fields
+                except Exception as e_store:
+                    logger.error(f"Error calling store_news_tweet for {tweet_to_store_data.get('original_tweet_id')}: {e_store}", exc_info=True)
+            
+            if stored_count > 0:
+                logger.info(f"Successfully stored {stored_count} new tweets.")
+        
+        except tweepy.errors.RateLimitError as e_rate:
+            logger.warning(f"Twitter rate limit hit during fetch_and_store_tweets: {e_rate}. Cycle skipped.")
+        except tweepy.errors.TweepyException as e_api:
+            logger.error(f"Twitter API error in fetch_and_store_tweets: {e_api}", exc_info=True)
+        except Exception as e_general:
+            logger.error(f"Unexpected error in fetch_and_store_tweets: {e_general}", exc_info=True)
 
     async def get_recent_news_tweets(self, limit=10):
         """Gets recent tweets from the database via NewsRepository."""
