@@ -24,6 +24,7 @@ wheels/
 venv/
 ENV/
 env/
+.env
 
 # IDE
 .idea/
@@ -31,19 +32,34 @@ env/
 *.swp
 *.swo
 
-# Environment variables
-.env
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
 
-# Logs
-*.log
-
-# Database
+# Local development
 *.db
 *.sqlite3
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
 
-# OS
+# Project specific
+btcbuzzbot.db
+archive/
+exports/
+*.bat
+*.sh
+*.conf
+*.service
+heroku
+git
+python
+
+# OS specific
 .DS_Store
 Thumbs.db 
-
-# Archive directory for old files
-archive/ 
