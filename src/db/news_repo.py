@@ -222,6 +222,25 @@ class NewsRepository:
         tweets = []
         try:
             if self.is_postgres:
+                # Log count of tweets with processed = FALSE OR processed IS NULL
+                count_sql_unprocessed = "SELECT COUNT(*) FROM news_tweets WHERE processed = FALSE OR processed IS NULL;"
+                # Log count of tweets with processed = TRUE AND llm_analysis IS NULL
+                count_sql_processed_null_analysis = "SELECT COUNT(*) FROM news_tweets WHERE processed = TRUE AND (llm_analysis IS NULL OR llm_analysis = 'null');"
+                
+                conn_count = self._get_postgres_connection()
+                cursor_count = conn_count.cursor()
+                
+                cursor_count.execute(count_sql_unprocessed)
+                unprocessed_count = cursor_count.fetchone()[0]
+                logger.info(f"[DB LOG] Found {unprocessed_count} tweets marked as processed = FALSE or IS NULL.")
+
+                cursor_count.execute(count_sql_processed_null_analysis)
+                processed_null_analysis_count = cursor_count.fetchone()[0]
+                logger.info(f"[DB LOG] Found {processed_null_analysis_count} tweets marked as processed = TRUE but llm_analysis IS NULL or 'null'.")
+                
+                cursor_count.close()
+                conn_count.close()
+
                 sql = """
                 SELECT * FROM news_tweets 
                 WHERE processed = FALSE OR processed IS NULL 
@@ -235,8 +254,23 @@ class NewsRepository:
                 cursor.close()
                 conn.close()
                 tweets = [dict(row) for row in rows]
-            else:
-                # Fetch where processed = 0 (SQLite boolean)
+            else: # SQLite
+                # Log count of tweets with processed = 0 OR processed IS NULL
+                count_sql_unprocessed = "SELECT COUNT(*) FROM news_tweets WHERE processed = 0 OR processed IS NULL;"
+                # Log count of tweets with processed = 1 AND llm_analysis IS NULL
+                count_sql_processed_null_analysis = "SELECT COUNT(*) FROM news_tweets WHERE processed = 1 AND (llm_analysis IS NULL OR llm_analysis = 'null');"
+
+                async with aiosqlite.connect(self.db_path) as db_count:
+                    async with db_count.execute(count_sql_unprocessed) as cursor_c_u:
+                        result_unprocessed = await cursor_c_u.fetchone()
+                        unprocessed_count = result_unprocessed[0] if result_unprocessed else 0
+                        logger.info(f"[DB LOG] Found {unprocessed_count} tweets marked as processed = 0 or IS NULL (SQLite).")
+
+                    async with db_count.execute(count_sql_processed_null_analysis) as cursor_c_pna:
+                        result_processed_null = await cursor_c_pna.fetchone()
+                        processed_null_analysis_count = result_processed_null[0] if result_processed_null else 0
+                        logger.info(f"[DB LOG] Found {processed_null_analysis_count} tweets marked as processed = 1 but llm_analysis IS NULL or 'null' (SQLite).")
+
                 sql = """
                 SELECT * FROM news_tweets 
                 WHERE processed = 0 OR processed IS NULL 
