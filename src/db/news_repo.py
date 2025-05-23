@@ -188,7 +188,7 @@ class NewsRepository:
                 FROM news_tweets 
                 WHERE processed = TRUE 
                   AND significance_score IS NOT NULL 
-                  AND published_at >= NOW() - INTERVAL '%s hours'
+                  AND published_at::timestamp >= NOW() - INTERVAL '%s hours'
                 ORDER BY significance_score DESC, published_at DESC;
                 """
                 conn = self._get_postgres_connection()
