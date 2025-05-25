@@ -270,7 +270,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
                 
                 # Log the post to the database
                 try:
-                    logger.info(f"Logging post {tweet_id} to database...")
+                    logger.info(f"Attempting to log post {tweet_id} to database (CONTENT: {content_type}, TWEET_TEXT: {tweet[:50]}...).")
                     await db.log_post(
                         tweet_id=tweet_id,
                         tweet=tweet, # The actual text content of the tweet
@@ -278,7 +278,7 @@ async def post_btc_update(config=None, scheduled_time_str=None):
                         price_change=price_change,
                         content_type=content_type
                     )
-                    logger.info(f"Successfully logged post {tweet_id} to database.")
+                    logger.info(f"Successfully logged post {tweet_id} to database after call.")
                 except Exception as log_err:
                     logger.error(f"Failed to log post {tweet_id} to database: {log_err}", exc_info=True)
 
