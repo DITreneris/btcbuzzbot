@@ -70,6 +70,14 @@ except ImportError as e:
     print(f"Warning: Could not import ContentManager class from src.content_manager: {e} - Content management disabled.")
     ContentManager = None # Placeholder
 
+try:
+    from src.twitter_client import TwitterClient # Added import for TwitterClient
+    TWITTER_CLIENT_CLASS_AVAILABLE = True
+except ImportError as e:
+    TWITTER_CLIENT_CLASS_AVAILABLE = False
+    print(f"Warning: Could not import TwitterClient class from src.twitter_client: {e}. Engagement update task may fail.")
+    TwitterClient = None # Placeholder
+
 # --- Constants & Config ---
 TWEET_JOB_ID_PREFIX = 'scheduled_tweet_'
 DB_PATH = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db') 
@@ -146,6 +154,24 @@ else:
         logger.warning("Tweet Handler instance not created: Class not available.")
     elif not db_instance:
         logger.warning("Tweet Handler instance not created: DB instance not available.")
+
+# Initialize Twitter Client instance (needed for engagement updates)
+twitter_client_instance = None
+if TWITTER_CLIENT_CLASS_AVAILABLE:
+    try:
+        from src.config import Config # Import Config locally for API keys
+        temp_config = Config()
+        twitter_client_instance = TwitterClient(
+            api_key=temp_config.twitter_api_key,
+            api_secret=temp_config.twitter_api_secret,
+            access_token=temp_config.twitter_access_token,
+            access_token_secret=temp_config.twitter_access_token_secret
+        )
+        logger.info("Task TwitterClient instance initialized.")
+    except Exception as tc_init_e:
+        logger.error(f"Failed to initialize Task TwitterClient instance: {tc_init_e}", exc_info=True)
+else:
+    logger.warning("Twitter Client instance not created for tasks: Class not available.")
 
 # --- Utility Functions --- 
 async def log_status_to_db(status: str, message: str):
@@ -253,65 +279,114 @@ async def reschedule_tweet_jobs(scheduler):
         logger.error("Reschedule task cannot get schedule: Database instance not available.")
         return # Stop if no DB
 
-    schedule_times = []
-    if schedule_config_str:
-        schedule_times = [t.strip() for t in schedule_config_str.split(',') if t.strip()]
-        logger.debug(f"Reschedule task loaded schedule: {schedule_times}")
-    else:
-         logger.warning("Reschedule task: No schedule loaded from DB.")
+    # Fallback or default schedule if DB read fails or is empty
+    if not schedule_config_str:
+        schedule_config_str = os.environ.get('DEFAULT_SCHEDULE_TIMES', '08:00,12:00,16:00,20:00')
+        logger.warning(f"Reschedule task: Using default/fallback schedule: '{schedule_config_str}'")
+
+    # Remove existing tweet jobs
+    removed_count = 0
+    for job in scheduler.get_jobs():
+        if job.id.startswith(TWEET_JOB_ID_PREFIX):
+            try:
+                scheduler.remove_job(job.id)
+                removed_count += 1
+                logger.info(f"Reschedule task REMOVED job: {job.id}")
+            except JobLookupError:
+                logger.warning(f"Reschedule task: Job {job.id} already removed or finished.")
+            except Exception as e_remove:
+                logger.error(f"Reschedule task: Error removing job {job.id}: {e_remove}", exc_info=True)
+    logger.info(f"Reschedule task: Found {removed_count} existing tweet jobs to remove.")
+
+    # Add new jobs based on the schedule string
+    tweet_times = [t.strip() for t in schedule_config_str.split(',') if t.strip()]
+    added_count = 0
+    logger.info(f"Reschedule task: Adding jobs for schedule: {tweet_times}")
+    for time_str in tweet_times:
+        try:
+            hour, minute = map(int, time_str.split(':'))
+            job_id = f"{TWEET_JOB_ID_PREFIX}{time_str.replace(':','')}"
+            
+            # Ensure post_tweet_and_log is available
+            if not POST_BTC_UPDATE_AVAILABLE:
+                logger.error(f"Cannot schedule tweet for {time_str}: post_btc_update function not available.")
+                continue # Skip this job
+
+            scheduler.add_job(
+                post_tweet_and_log,
+                trigger=CronTrigger(hour=hour, minute=minute, timezone=SCHEDULER_TIMEZONE),
+                id=job_id,
+                name=f'Scheduled Tweet Post at {time_str} UTC',
+                replace_existing=True, # Replace if somehow exists
+                args=[job_id, time_str] # Pass job_id and time_str to the task
+            )
+            added_count += 1
+            logger.info(f"Reschedule task ADDED job: {job_id} for {time_str} UTC")
+        except ValueError:
+            logger.error(f"Reschedule task: Invalid time format '{time_str}' in schedule.")
+        except Exception as e_add:
+            logger.error(f"Reschedule task: Error adding job for {time_str}: {e_add}", exc_info=True)
+    
+    logger.info(f"Reschedule task finished. Added {added_count} tweet jobs.")
+    await log_status_to_db("Scheduled", f"Scheduler reconfigured. Next tweets at: {schedule_config_str}")
+
+
+async def update_tweet_engagement_stats_task():
+    """Fetches engagement for posts and updates the database."""
+    logger.info("--- Task update_tweet_engagement_stats_task ENTERED ---")
+    
+    if not db_instance or not twitter_client_instance:
+        logger.error("Cannot update engagement: DB or TwitterClient instance not available.")
+        return
+
+    updated_count = 0
+    failed_count = 0
+    posts_to_check_limit = 20 # Process up to N posts per run to avoid long tasks / API limits
 
     try:
-        # --- Strategy: Remove all existing tweet jobs first --- 
-        existing_job_ids = {job.id for job in scheduler.get_jobs() if job.id.startswith(TWEET_JOB_ID_PREFIX)}
-        logger.info(f"Reschedule task: Found {len(existing_job_ids)} existing tweet jobs to remove.")
-        for job_id in existing_job_ids:
-            try:
-                scheduler.remove_job(job_id)
-                logger.debug(f"Reschedule task removed job: {job_id}")
-            except JobLookupError:
-                 logger.warning(f"Reschedule task: Job {job_id} already gone before removal attempt.")
-            except Exception as remove_e:
-                logger.error(f"Reschedule task: Error removing job {job_id}: {remove_e}")
-        # --- End Removal ---
+        posts = await db_instance.get_posts_needing_engagement_update(limit=posts_to_check_limit)
+        if not posts:
+            logger.info("No posts found needing engagement update at this time.")
+            return
 
-        # --- Strategy: Add jobs based on the current schedule --- 
-        added_count = 0
-        if not schedule_times:
-            logger.warning("Reschedule task: No schedule times found/loaded. No tweet jobs will be added.")
-        else:
-            logger.info(f"Reschedule task: Adding jobs for schedule: {schedule_times}")
-            for time_str in schedule_times:
-                try:
-                    hour, minute = map(int, time_str.split(':'))
-                    job_id = f"{TWEET_JOB_ID_PREFIX}{time_str.replace(':', '')}" # Use consistent ID format
-                    scheduler.add_job(
-                        post_tweet_and_log, # This is the target function
-                        trigger='cron',
-                        hour=hour,
-                        minute=minute,
-                        timezone=SCHEDULER_TIMEZONE, # Explicitly set timezone
-                        id=job_id,
-                        name=f'Post Tweet at {time_str} UTC',
-                        args=[job_id, time_str], # Pass job_id and time_str as arguments
-                        replace_existing=True, # Replace existing job with same ID
-                        misfire_grace_time=60 # Allow 1 min grace period
-                    )
-                    logger.info(f"Reschedule task ADDED job: {job_id} for {time_str} UTC")
-                    added_count += 1
+        logger.info(f"Found {len(posts)} posts to check for engagement updates.")
 
-                except ValueError:
-                    logger.error(f"Reschedule task: Invalid time format '{time_str}' in schedule, skipping add.")
-                except Exception as job_e:
-                     logger.error(f"Reschedule task: Error adding job for {time_str}: {job_e}", exc_info=True)
-        # --- End Adding ---
+        for post in posts:
+            tweet_id = post.get('tweet_id')
+            if not tweet_id:
+                logger.warning(f"Skipping post with no tweet_id: {post}")
+                continue
+            
+            logger.debug(f"Fetching engagement for tweet ID: {tweet_id}")
+            engagement_data = await twitter_client_instance.get_tweet_engagement(tweet_id)
+            
+            if engagement_data:
+                likes = engagement_data.get('likes', 0)
+                retweets = engagement_data.get('retweets', 0)
+                logger.info(f"Tweet ID {tweet_id} - Likes: {likes}, Retweets: {retweets}")
+                
+                success = await db_instance.update_post_engagement(tweet_id, likes, retweets)
+                if success:
+                    logger.info(f"Successfully updated engagement for tweet ID {tweet_id} in DB.")
+                    updated_count += 1
+                else:
+                    logger.error(f"Failed to update engagement for tweet ID {tweet_id} in DB.")
+                    failed_count += 1
+            else:
+                logger.warning(f"Could not fetch engagement for tweet ID {tweet_id}. It might be deleted or API error.")
+                # Optionally, update engagement_last_checked even if fetch fails to avoid re-checking immediately
+                # await db_instance.update_post_engagement(tweet_id, 0, 0) # This would mark it as checked with 0s
+                # For now, we'll just let it be re-checked next time.
+                failed_count += 1
+            
+            await asyncio.sleep(1) # Small delay to be respectful to Twitter API
 
-        logger.info(f"Reschedule task finished. Added {added_count} tweet jobs.")
-        active_tweet_jobs = [j for j in scheduler.get_jobs() if j.id.startswith(TWEET_JOB_ID_PREFIX)]
-        await log_status_to_db("Running", f"Tweet schedule refreshed. {len(active_tweet_jobs)} tweet jobs active.")
+        logger.info(f"Engagement update task finished. Updated: {updated_count}, Failed/Skipped: {failed_count}.")
 
     except Exception as e:
-        logger.error(f"Reschedule task failed during remove/add process: {e}", exc_info=True)
-        log_status_to_db("Error", f"Reschedule task failed to refresh tweet schedule: {e}")
+        logger.error(f"Critical error in update_tweet_engagement_stats_task: {e}", exc_info=True)
+        await log_status_to_db("Error", f"Engagement update task failed: {e}")
+
 
 # --- Manual Trigger Functions (for CLI) ---
 

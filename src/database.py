@@ -142,7 +142,8 @@ class Database:
                     "    price_change REAL NOT NULL,\n"
                     "    content_type TEXT NOT NULL,\n"
                     "    likes INTEGER DEFAULT 0,\n"
-                    "    retweets INTEGER DEFAULT 0\n"
+                    "    retweets INTEGER DEFAULT 0,\n"
+                    "    engagement_last_checked TIMESTAMP WITH TIME ZONE DEFAULT NULL\n"
                     ");"
                 )
                 
@@ -251,7 +252,8 @@ class Database:
                 price_change REAL NOT NULL,
                 content_type TEXT NOT NULL,
                 likes INTEGER DEFAULT 0,
-                retweets INTEGER DEFAULT 0
+                retweets INTEGER DEFAULT 0,
+                engagement_last_checked TEXT DEFAULT NULL
             )
             ''')
             
@@ -418,7 +420,7 @@ class Database:
                     (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets) 
                     VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s) RETURNING id
                     """,
-                    (tweet_id, tweet, price, price_change, content_type, 0, 0)
+                    (tweet_id, tweet, price, price_change, content_type, 0, 0) # engagement_last_checked will be NULL by default
                 )
                 lastrowid = cursor.fetchone()[0]
                 conn.commit()
@@ -434,7 +436,7 @@ class Database:
                         (tweet_id, tweet, timestamp, price, price_change, content_type, likes, retweets) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (tweet_id, tweet, datetime.utcnow().isoformat(), price, price_change, content_type, 0, 0)
+                    (tweet_id, tweet, datetime.utcnow().isoformat(), price, price_change, content_type, 0, 0) # engagement_last_checked will be NULL by default
                 )
                 await db.commit()
                 return cursor.lastrowid
@@ -442,6 +444,81 @@ class Database:
             print(f"Error logging post: {e}")
             return -1
     
+    async def update_post_engagement(self, tweet_id: str, likes: int, retweets: int) -> bool:
+        """Update likes and retweets for a given post and set engagement_last_checked."""
+        try:
+            now_iso = datetime.utcnow().isoformat()
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE posts 
+                    SET likes = %s, retweets = %s, engagement_last_checked = NOW()
+                    WHERE tweet_id = %s
+                    """,
+                    (likes, retweets, tweet_id)
+                )
+                updated_rows = cursor.rowcount
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return updated_rows > 0
+            else:
+                async with aiosqlite.connect(self.db_path) as db:
+                    cursor = await db.execute(
+                        """
+                        UPDATE posts 
+                        SET likes = ?, retweets = ?, engagement_last_checked = ?
+                        WHERE tweet_id = ?
+                        """,
+                        (likes, retweets, now_iso, tweet_id)
+                    )
+                    await db.commit()
+                    return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error updating post engagement for {tweet_id}: {e}", exc_info=True)
+            return False
+
+    async def get_posts_needing_engagement_update(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get posts where engagement_last_checked is NULL, oldest first."""
+        posts = []
+        try:
+            if self.is_postgres:
+                conn = self._get_postgres_connection()
+                # Use RealDictCursor for PostgreSQL to get dict-like rows
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                sql = """
+                    SELECT tweet_id, timestamp 
+                    FROM posts 
+                    WHERE engagement_last_checked IS NULL 
+                    ORDER BY timestamp ASC 
+                    LIMIT %s;
+                    """
+                cursor.execute(sql, (limit,))
+                posts = [dict(row) for row in cursor.fetchall()]
+                cursor.close()
+                conn.close()
+            else:
+                async with aiosqlite.connect(self.db_path) as db:
+                    db.row_factory = sqlite3.Row # To get dict-like rows
+                    async with db.execute(
+                        """
+                        SELECT tweet_id, timestamp 
+                        FROM posts 
+                        WHERE engagement_last_checked IS NULL 
+                        ORDER BY timestamp ASC 
+                        LIMIT ?;
+                        """,
+                        (limit,)
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                        posts = [dict(row) for row in rows]
+            return posts
+        except Exception as e:
+            logger.error(f"Error fetching posts needing engagement update: {e}", exc_info=True)
+            return []
+            
     async def count_records(self, table_name: str) -> int:
         """Count records in a given table"""
         try:

@@ -130,8 +130,10 @@ try:
         run_news_fetch_wrapper, 
         run_analysis_cycle_wrapper, 
         reschedule_tweet_jobs, 
+        update_tweet_engagement_stats_task,
         NEWS_FETCHER_CLASS_AVAILABLE,
         NEWS_ANALYZER_CLASS_AVAILABLE,
+        TWITTER_CLIENT_CLASS_AVAILABLE,
         TWEET_JOB_ID_PREFIX, # Need prefix for logging
         log_status_to_db # Use the task module's logger utility
     )
@@ -158,6 +160,7 @@ except ImportError as e:
 RESCHEDULE_JOB_ID = 'reschedule_tweet_jobs'
 NEWS_FETCH_JOB_ID = 'fetch_news_tweets'
 NEWS_ANALYZE_JOB_ID = 'analyze_news_tweets'
+ENGAGEMENT_UPDATE_JOB_ID = 'update_tweet_engagement'
 DB_PATH = os.environ.get('SQLITE_DB_PATH', 'btcbuzzbot.db') 
 SCHEDULER_TIMEZONE = pytz.utc 
 
@@ -165,12 +168,14 @@ SCHEDULER_TIMEZONE = pytz.utc
 DEFAULT_RESCHEDULE_MINUTES = 30
 DEFAULT_NEWS_FETCH_MINUTES = 720
 DEFAULT_NEWS_ANALYZE_MINUTES = 30
+DEFAULT_ENGAGEMENT_UPDATE_MINUTES = 240
 DEFAULT_RESCHEDULE_GRACE_SECONDS = 60
 DEFAULT_NEWS_FETCH_GRACE_SECONDS = 300
 
 # REMOVED: No longer need RESCHEDULE_INTERVAL_MINUTES since we'll run it only at startup
 NEWS_FETCH_INTERVAL_MINUTES = int(os.environ.get('NEWS_FETCH_INTERVAL_MINUTES', DEFAULT_NEWS_FETCH_MINUTES))
 NEWS_ANALYZE_INTERVAL_MINUTES = int(os.environ.get('NEWS_ANALYZE_INTERVAL_MINUTES', DEFAULT_NEWS_ANALYZE_MINUTES))
+ENGAGEMENT_UPDATE_INTERVAL_MINUTES = int(os.environ.get('ENGAGEMENT_UPDATE_INTERVAL_MINUTES', DEFAULT_ENGAGEMENT_UPDATE_MINUTES))
 # REMOVED: No longer need RESCHEDULE_GRACE_SECONDS for interval trigger
 NEWS_FETCH_GRACE_SECONDS = int(os.environ.get('NEWS_FETCH_GRACE_SECONDS', DEFAULT_NEWS_FETCH_GRACE_SECONDS))
 
@@ -234,6 +239,21 @@ def create_scheduler():
         logger.info(f"News analysis job added (interval: {NEWS_ANALYZE_INTERVAL_MINUTES} minutes).")
     else:
         logger.warning("News analysis job NOT added: Task not available.")
+
+    # 4. Job to update tweet engagement statistics (if available)
+    if TWITTER_CLIENT_CLASS_AVAILABLE and DATABASE_CLASS_AVAILABLE: # Depends on both
+        scheduler.add_job(
+            update_tweet_engagement_stats_task, # New async task from tasks module
+            trigger='interval',
+            minutes=ENGAGEMENT_UPDATE_INTERVAL_MINUTES,
+            id=ENGAGEMENT_UPDATE_JOB_ID,
+            name='Update Tweet Engagement Stats',
+            replace_existing=True,
+            misfire_grace_time=300 # 5 minutes grace
+        )
+        logger.info(f"Tweet engagement update job added (interval: {ENGAGEMENT_UPDATE_INTERVAL_MINUTES} minutes).")
+    else:
+        logger.warning("Tweet engagement update job NOT added: TwitterClient or Database class not available.")
     
     return scheduler
 

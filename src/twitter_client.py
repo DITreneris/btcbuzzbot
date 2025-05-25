@@ -1,5 +1,5 @@
 import tweepy
-from typing import Optional
+from typing import Optional, Dict
 import asyncio
 from functools import partial
 import json
@@ -43,4 +43,36 @@ class TwitterClient:
                     print(f"Twitter API error details: {error_data}")
                 except:
                     print(f"Twitter API error response: {e.response.text}")
+            return None 
+
+    async def get_tweet_engagement(self, tweet_id: str) -> Optional[Dict[str, int]]:
+        """Get engagement (likes, retweets) for a given tweet ID using Twitter API v2."""
+        try:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                partial(self.client.get_tweet, id=tweet_id, tweet_fields=["public_metrics"])
+            )
+
+            if response and response.data and response.data.public_metrics:
+                metrics = response.data.public_metrics
+                return {
+                    "likes": metrics.get("like_count", 0),
+                    "retweets": metrics.get("retweet_count", 0) 
+                    # also available: impression_count, reply_count, quote_count, etc.
+                }
+            else:
+                print(f"No public_metrics data returned from Twitter API for tweet ID {tweet_id}")
+                # Log the full response if available and helpful
+                if response:
+                    print(f"Full response for {tweet_id}: {response}")
+                return None
+        except Exception as e:
+            print(f"Error getting tweet engagement for {tweet_id}: {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                try:
+                    error_data = json.loads(e.response.text)
+                    print(f"Twitter API error details for {tweet_id}: {error_data}")
+                except:
+                    print(f"Twitter API error response for {tweet_id}: {e.response.text}")
             return None 
