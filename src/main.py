@@ -268,6 +268,20 @@ async def post_btc_update(config=None, scheduled_time_str=None):
             if tweet_id:
                 logger.info(f"Successfully posted tweet with ID: {tweet_id}")
                 
+                # Log the post to the database
+                try:
+                    logger.info(f"Logging post {tweet_id} to database...")
+                    await db.log_post(
+                        tweet_id=tweet_id,
+                        tweet=tweet, # The actual text content of the tweet
+                        price=current_price,
+                        price_change=price_change,
+                        content_type=content_type
+                    )
+                    logger.info(f"Successfully logged post {tweet_id} to database.")
+                except Exception as log_err:
+                    logger.error(f"Failed to log post {tweet_id} to database: {log_err}", exc_info=True)
+
                 # Post to Discord if enabled
                 if config.enable_discord_posting:
                     logger.info("Discord posting enabled. Sending message...")
