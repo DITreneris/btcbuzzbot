@@ -165,7 +165,8 @@ if TWITTER_CLIENT_CLASS_AVAILABLE:
             api_key=temp_config.twitter_api_key,
             api_secret=temp_config.twitter_api_secret,
             access_token=temp_config.twitter_access_token,
-            access_token_secret=temp_config.twitter_access_token_secret
+            access_token_secret=temp_config.twitter_access_token_secret,
+            bearer_token=temp_config.twitter_bearer_token
         )
         logger.info("Task TwitterClient instance initialized.")
     except Exception as tc_init_e:
