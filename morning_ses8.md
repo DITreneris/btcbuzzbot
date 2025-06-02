@@ -1,18 +1,13 @@
 # Morning Session 8: Stabilization Checkpoint & Automated Testing Plan
 
-## Progress Update (as of 2025-05-21, 07:40 EET)
+## Progress Update (as of 2025-05-27, 08:20 UTC)
 
-- **App Status:** Stable and fully operational across all platforms (Twitter, Discord, Telegram).
-- **Scheduler:** All scheduled posts are executing on time.
-- **Database:** PostgreSQL schema updated; all required columns (significance_label, sentiment_label, etc.) are present in `news_tweets`.
-- **Multi-Platform Posting:** Confirmed successful posting to Twitter, Discord, and Telegram (see Heroku logs for 2025-05-20 22:00 UTC and after).
-- **News Analysis:** No unprocessed news tweets found (as expected); fallback to quotes/jokes is working as designed.
-- **Error Resolution:**
-    - Previous error (`psycopg2.errors.UndefinedColumn: column "significance_label" does not exist`) is now resolved after manual schema migration.
-    - No critical errors in logs; only expected fallback behavior.
-- **Next Steps:**
-    - Continue monitoring for any new issues.
-    - Optionally, seed more news data for analysis if desired.
+- **NewsFetcher & Fetch Job:** NewsFetcher is now initializing and the scheduled news fetching job is being added and run as expected.
+- **Exception Handling:** Tweepy exception handling has been fixed (no more RateLimitError bug), and since_id errors are now handled gracefully.
+- **Rate Limiting:** Twitter API rate limits are being encountered and are now logged and handled without crashing the fetcher.
+- **Fetch Logic Optimization:** The fetch logic now defaults to fetching only 15 tweets per cycle (configurable), and warns if a fetch is triggered within 10 minutes of the last one to help avoid rate limits.
+- **Manual Fetches:** Manual fetches are working, but should be used sparingly to avoid hitting Twitter's rate limits.
+- **All scheduled jobs (posting, analysis, engagement, news fetch) are running and logging as expected.**
 
 ## 1. Session Goal
 
@@ -130,27 +125,28 @@ Significant progress has been made implementing automated tests to improve stabi
     2.  Add integration tests between components
     3.  Implement end-to-end tests for the entire posting workflow
 
-## 6. Immediate Actions (Updated May 14th)
+## 6. Immediate Actions (Updated May 27th)
 
-1.  **~~Monitor/Verify 18:00 UTC Post:~~** ~~Check logs around 18:00 UTC to verify:~~ **(Verified)**
-    *   ~~Job `scheduled_tweet_1800` runs successfully.~~
-    *   ~~No `NameError` related to `tweet_text` occurs.~~
-    *   ~~Tweet is posted successfully to Twitter.~~
-    *   ~~Message is posted successfully to Discord.~~
-2.  **~~Develop: News Analysis Admin Display (Step 2.3).~~** **(Completed v149)**
-3.  **~~Test: Expand test coverage.~~** **(Completed v150)**
-4.  **~~Cleanup: Archive/remove legacy tests.~~** **(Completed v150)**
-5.  **~~Fix Scheduler Rescheduling Task Running Every 30 Mins.~~** **(Completed v150)**
-6.  **~~Implement Telegram Posting Integration.~~** **(Completed v150)**
-7.  **Fix: Address main.py test failures.**
-8.  **Deploy v150 to production and verify functionality.**
+1.  **Monitor Twitter API usage and rate limits.**
+2.  **Avoid frequent manual fetches.** Use the warning logs as a guide.
+3.  **Adjust fetch interval and max_results as needed** to stay within Twitter's API limits.
+4.  **Continue monitoring logs** for any new errors or issues.
 
 ## 7. Current Issues
 
-*   **~~Scheduler Rescheduling Task Running Every 30 Mins (Previously thought Fixed v148 - Reopened):~~** ~~`src/scheduler_engine.py` appears to still be scheduling `reschedule_tweet_jobs` with an interval trigger instead of running it only once at startup. Logs confirm repeated execution.~~ **(Fixed v150)**
+*   **Twitter API Authentication:** **RESOLVED (May 30th, 2025)**
+    *   **Status:** Fixed by updating Twitter API credentials on Heroku.
+    *   **Details:** The 401 Unauthorized errors have been resolved after updating the Twitter API credentials. Logs confirm successful authentication using Bearer Token.
+    *   **Verification:** Application logs show successful initialization of all Twitter-related components and proper authentication.
+
+*   **Admin Panel Data Overview:** The "Data Overview" section in the admin panel is currently not displaying news analysis statistics (Sentiment Trend, Significance/Sentiment Distribution bars are empty, table shows N/A).
+    *   **Status:** **Resolution in Progress (v162). Positive Signs.**
+    *   **Details:** A previous database error (`psycopg2.errors.UndefinedFunction`) was fixed. `utils/reset_news_analysis.py` was run, successfully marking 80 tweets for re-analysis.
+    *   **Latest (May 23rd, ~14:40 UTC):** The 14:35 UTC analysis cycle successfully processed and updated the first batch of 30 reset tweets. Data should now be appearing in the Admin Panel. Remaining tweets (~50) will be processed in subsequent cycles.
+
 *   **Test Failures in main.py:** The tests for `src/main.py` currently fail due to issues with mocking async functions. This doesn't affect production functionality but needs to be addressed for improved test coverage.
-*   **Twitter API Rate Limit:** Status unknown. Analysis is now running, needs monitoring over time.
-*   **~~Legacy Tests: Cluttering root directory.~~** **(Resolved v150)**
+
+*   **Twitter API Rate Limit:** The bot is currently hitting Twitter's 429 Too Many Requests error when fetching news. This is not a code bug, but a limitation of the free Twitter API tier. The fetcher now logs and skips cycles when rate-limited.
 
 ## 8. Guiding Principles (Reiteration)
 
@@ -198,23 +194,9 @@ Goals for this phase involve extending the bot's reach to other platforms and en
     *   **Goal:** Allow users on Discord/Telegram to request data (e.g., `/price`).
     *   **Status:** Not Started. This would likely require switching from Webhooks to full bot clients (`discord.py`, `python-telegram-bot`).
 
-## 9. Update Summary (May 14th, 2025)
+## 9. Update Summary (May 27th, 2025)
 
-The application is now stable and fully operational with enhanced features:
-
-1. **Core Functionality:** Bitcoin price updates are being posted regularly on Twitter following the configured schedule (06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00 UTC).
-
-2. **Discord Integration:** Successfully implemented and stable, all tweets are now simultaneously posted to Discord.
-
-3. **Telegram Integration:** Implementation complete and ready for deployment, allowing price updates to be posted to Telegram channels.
-
-4. **News Analysis Admin Display:** Fully implemented with comprehensive visualizations and detailed analysis views.
-
-5. **Automated Testing:** Significant expansion of test coverage, including new tests for the NewsRepository and Telegram functionality.
-
-6. **Stability Improvements:** Fixed scheduler rescheduling issue and removed legacy test files for a cleaner codebase.
-
-Next steps will focus on fixing the remaining test issues in the main.py module, deploying the Telegram integration to production, and potentially exploring interactive commands for Discord and Telegram as outlined in Step 3.3. 
+The application is now stable and fully operational with robust error handling and optimized fetch logic. The main operational constraint is the Twitter API rate limit, which is now handled gracefully. All scheduled jobs are running, and the system is ready for further monitoring and incremental improvements.
 
 ## 10. Telegram Integration Deployment Plan
 
@@ -312,29 +294,185 @@ If issues arise:
 
 This provides a structured approach. We will start with Phase 1. 
 
-## 12. Latest Deployment Status (May 20th, 2025)
+## 12. Latest Deployment Status (May 30th, 2025)
 
-### Deployment v150 Status
-* **Scheduler Initialization:** Successfully completed with all components properly initialized
+### Deployment Status
+* **Twitter Authentication:** Successfully resolved with new API credentials
+* **Scheduler Initialization:** All components properly initialized
 * **Database Connection:** PostgreSQL connection established and verified
 * **News Analysis Setup:** VADER SentimentIntensityAnalyzer and AsyncGroq client (llama3-8b-8192) initialized
 * **Tweet Schedule:** Successfully configured with 9 posting times (06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00 UTC)
-* **Component Status:**
-  * TweetHandler: Initialized and ready
-  * NewsFetcher: Initialized with Twitter client authentication
-  * NewsAnalyzer: Initialized with sentiment analysis tools
-  * ContentManager: Initialized and ready
-  * Telegram Integration: Initialized and ready
 
 ### System Health
-* All scheduled jobs added successfully
-* News fetching job configured (24-hour interval)
-* News analysis job configured (30-minute interval)
+* All scheduled jobs added successfully:
+  * News fetching job (24-hour interval)
+  * News analysis job (30-minute interval)
+  * Tweet engagement update job (4-hour interval)
 * Tweet posting schedule verified and active
 * No errors or warnings in initialization logs
 
 ### Next Steps
-1. Monitor first scheduled tweet post (06:00 UTC)
-2. Verify Telegram message delivery
-3. Check news analysis cycle at next 30-minute interval
-4. Monitor system stability over next 24 hours 
+1. Monitor next scheduled tweet post (12:00 UTC)
+2. Verify news analysis cycle at next 30-minute interval
+3. Monitor system stability over next 24 hours
+4. Address remaining test failures in `main.py`
+5. Continue monitoring Twitter API rate limits
+
+## 13. Admin Panel News Analysis Display Issue (May 30th, 2025)
+
+**Current Status:**
+* **Admin Panel Functionality:** Working correctly
+  * Successfully fetching and displaying 25 potential news tweets
+  * Content management (quotes/jokes) working properly
+  * Successfully added 3 new quotes (IDs: 437, 438, 439)
+  * Current content counts:
+    * Quotes: 393 (increased from 390)
+    * Jokes: 381 (stable)
+
+* **News Analysis Display:**
+  * System is fetching and processing news tweets for analysis
+  * Logs show successful retrieval of 25 potential news items
+  * News analysis processing is running as expected
+
+* **Content Management:**
+  * Quote addition functionality working correctly
+  * Successfully added quotes from:
+    1. Leon Luow (Nobel Peace Prize)
+    2. Roger Ver (Bitcoin Investor)
+    3. Wences Casares (Founder of Banco)
+  * All quotes were successfully stored in PostgreSQL database
+  * Admin panel updates immediately reflect new content
+
+* **System Performance:**
+  * Admin panel response times are good (200-300ms)
+  * Database operations completing successfully
+  * No errors in content management operations
+
+**Next Steps:**
+1. Continue monitoring news analysis processing
+2. Verify news analysis data display in admin panel
+3. Consider adding more content management features if needed
+4. Monitor system performance under increased content load
+
+## 14. Tweet History Page (`/posts`) and Engagement Stats Issue (May 25th, 2025)
+
+An issue was identified where the "Tweet History" page (`/posts`) was not showing posts newer than May 20th, 2025. Additionally, engagement statistics (likes, retweets) on this page and in the Admin Panel's "Bot Statistics" section were not updating, remaining at 0 for newer posts.
+
+**Investigation & Actions Taken:**
+
+1.  **Code Review (`app.py`, `src/database.py`, `src/main.py`):**
+    *   The `/posts` route in `app.py` uses `get_posts_paginated` which correctly queries the `posts` table.
+    *   The `get_basic_stats` function in `app.py` (for Admin Panel stats) also queries the `posts` table.
+    *   The `log_post` method in `src/database.py` initializes `likes` and `retweets` to 0 upon inserting a new post. This is expected.
+    *   **Root Cause Identified:** A critical `await db.log_post(...)` call was missing in `src/main.py` within the `post_btc_update` function. This call is responsible for saving the details of a successfully sent tweet to the `posts` database table. Its absence meant no new posts were being recorded, hence the stale `/posts` page and stats.
+
+2.  **Fix Implemented (v163 & v164):**
+    *   **Attempt 1 (v163):** The `await db.log_post(...)` call was reinstated in `src/main.py`. However, Heroku logs after deployment did not show the expected log messages confirming its execution.
+    *   **Attempt 2 (v164):** More detailed logging was added around the `db.log_post` call in `src/main.py` to pinpoint if the call was being attempted and if it was succeeding.
+    *   **Verification (v164):** Heroku logs for the 10:00 UTC post on May 25th confirmed the new detailed log messages:
+        *   `INFO - Attempting to log post <tweet_id> to database (CONTENT: joke, TWEET_TEXT: BTC: $107,020.00 | -0.60% 📉...).`
+        *   `INFO - Successfully logged post <tweet_id> to database after call.`
+        This confirmed the `db.log_post` function is now being called and executing successfully.
+
+**Current Status & Next Steps:**
+
+*   **`/posts` Page Fixed:** The "Tweet History" page (`/posts`) should now correctly display all new posts made by the bot since the deployment of v164. The "Total Posts" in the Admin Panel should also be accurate.
+*   **Engagement Statistics (Pending):** The issue of likes and retweets not updating (remaining at 0) is still outstanding. This requires a separate mechanism to fetch these statistics from Twitter and update the `posts` table.
+*   **Next Actions:**
+    1.  Verify the `/posts` page and "Total Posts" stat are now correct.
+    2.  Decide on implementing the engagement statistics update feature.
+
+**Update (May 25th, ~10:45 UTC): Engagement Statistics Feature Deployed (v165)**
+
+Following the resolution of the `/posts` page display, the tweet engagement statistics update feature has been implemented and deployed.
+
+**Key Changes in v165:**
+
+1.  **Database (`src/database.py`):**
+    *   Added an `engagement_last_checked` (TIMESTAMP) column to the `posts` table.
+    *   Implemented `update_post_engagement(tweet_id, likes, retweets)` to update like/retweet counts and set `engagement_last_checked`.
+    *   Implemented `get_posts_needing_engagement_update(limit)` to fetch posts where `engagement_last_checked` is NULL (oldest first).
+
+2.  **Twitter Client (`src/twitter_client.py`):**
+    *   Added `get_tweet_engagement(tweet_id)` method using the Twitter API v2 `get_tweet` endpoint with `public_metrics` to retrieve like and retweet counts.
+
+3.  **Scheduler Tasks (`src/scheduler_tasks.py`):**
+    *   Created a new task `update_tweet_engagement_stats_task()`.
+        *   This task fetches posts needing an engagement update from the database.
+        *   For each post, it calls `twitter_client.get_tweet_engagement()`.
+        *   If successful, it calls `db.update_post_engagement()` to store the new counts.
+    *   Initialized a shared `twitter_client_instance` for this task.
+
+4.  **Scheduler Engine (`src/scheduler_engine.py`):**
+    *   Added a new job definition to run `update_tweet_engagement_stats_task` periodically.
+    *   The job is configured to run every 240 minutes (4 hours) by default (via `ENGAGEMENT_UPDATE_INTERVAL_MINUTES`).
+
+**Deployment & Initial Verification (v165):**
+
+*   The changes were successfully deployed to Heroku.
+*   Heroku logs from the application restart (~10:38 UTC, May 25th) confirm:
+    *   All components, including the new `TwitterClient` for tasks, initialized correctly.
+    *   The `update_tweet_engagement_stats_task` has been successfully scheduled:
+        `INFO - Tweet engagement update job added (interval: 240 minutes).`
+
+**Next Steps for Engagement Statistics:**
+
+1.  **Monitor First Run:** The `update_tweet_engagement_stats_task` is scheduled to run for the first time approximately 4 hours after the last restart (around 14:38 UTC, May 25th).
+    *   Check Heroku logs around this time for messages from `src.scheduler_tasks` related to this task (e.g., "--- Task update_tweet_engagement_stats_task ENTERED ---", "Fetching engagement for tweet ID...", "Successfully updated engagement...").
+2.  **Verify Data:** After the task has run, check the `/posts` page and the Admin Panel's "Bot Statistics" and "Tweet History" to see if likes and retweets for older posts are being populated.
+3.  **Ongoing Monitoring:** Ensure the task continues to run as scheduled and updates engagement data correctly over time.
+
+**Update (May 25th, ~18:10 UTC): Log Review & Next Monitoring Point**
+
+*   Logs provided by the user covering the period **16:00 UTC to 18:08 UTC on May 25th** were reviewed.
+    *   These logs show successful scheduled posts at 16:00 and 18:00 UTC.
+    *   They also show normal news analysis cycles running and finding no new news to process.
+    *   Crucially, these logs **do not yet cover the expected execution window for the `update_tweet_engagement_stats_task`**.
+        *   The application restarted at ~10:38 UTC.
+        *   The first run of the engagement task (4-hour interval) was anticipated around ~14:38 UTC.
+        *   The second run is anticipated around **~18:38 UTC**.
+*   **Next Action:** Continue to monitor Heroku logs around and after **18:38 UTC on May 25th** for the execution of the `update_tweet_engagement_stats_task`.
+
+**Update (May 26th, ~05:10 UTC): Database Column `engagement_last_checked` Missing - Fixed**
+
+*   Heroku logs reviewed around **22:38 UTC (May 25th)** and **02:38 UTC (May 26th)** showed the `update_tweet_engagement_stats_task` starting as scheduled.
+*   However, the task failed with a `psycopg2.errors.UndefinedColumn: column "engagement_last_checked" does not exist` error. This occurred in `src/database.py` within the `get_posts_needing_engagement_update` function.
+*   **Reason:** While the `engagement_last_checked` column was added to the `_create_tables_postgres` method in `src/database.py`, this does not automatically alter existing tables in a live PostgreSQL database.
+*   **Fix Implemented (v166):
+    1.  Created a new utility script: `utils/add_engagement_column.py`. This script connects to the PostgreSQL database and executes an `ALTER TABLE posts ADD COLUMN engagement_last_checked TIMESTAMP WITH TIME ZONE DEFAULT NULL;` command if the column doesn't already exist.
+    2.  The script was added to the repository and deployed to Heroku.
+    3.  Executed the script via `heroku run python utils/add_engagement_column.py --app btcbuzzbot`.
+    4.  Logs confirmed successful execution: `INFO - Successfully added 'engagement_last_checked' column to 'posts' table.`
+
+*   **Next Monitoring Step:** The `update_tweet_engagement_stats_task` is scheduled to run every 4 hours. The last failed run was at ~02:38 UTC (May 26th). The next run is anticipated around **06:38 UTC on May 26th**.
+    *   Monitor Heroku logs at this time to confirm the task runs successfully without the `UndefinedColumn` error and begins processing posts for engagement updates.
+    *   Subsequently, verify if likes/retweets are updated on the `/posts` page and Admin Panel.
+
+
+### Original Sections Updated Below:
+
+## 7. Current Issues
+
+*   **Twitter API Authentication:** **RESOLVED (May 30th, 2025)**
+    *   **Status:** Fixed by updating Twitter API credentials on Heroku.
+    *   **Details:** The 401 Unauthorized errors have been resolved after updating the Twitter API credentials. Logs confirm successful authentication using Bearer Token.
+    *   **Verification:** Application logs show successful initialization of all Twitter-related components and proper authentication.
+
+*   **Admin Panel Data Overview:** The "Data Overview" section in the admin panel is currently not displaying news analysis statistics (Sentiment Trend, Significance/Sentiment Distribution bars are empty, table shows N/A).
+    *   **Status:** **Resolution in Progress (v162). Positive Signs.**
+    *   **Details:** A previous database error (`psycopg2.errors.UndefinedFunction`) was fixed. `utils/reset_news_analysis.py` was run, successfully marking 80 tweets for re-analysis.
+    *   **Latest (May 23rd, ~14:40 UTC):** The 14:35 UTC analysis cycle successfully processed and updated the first batch of 30 reset tweets. Data should now be appearing in the Admin Panel. Remaining tweets (~50) will be processed in subsequent cycles.
+
+*   **Test Failures in main.py:** The tests for `src/main.py` currently fail due to issues with mocking async functions. This doesn't affect production functionality but needs to be addressed for improved test coverage.
+
+*   **Twitter API Rate Limit:** The bot is currently hitting Twitter's 429 Too Many Requests error when fetching news. This is not a code bug, but a limitation of the free Twitter API tier. The fetcher now logs and skips cycles when rate-limited.
+
+## Next Steps (Updated May 23rd, 2025)
+1.  **Monitor Heroku logs and Admin Panel** to verify if the forced re-analysis (after running `utils/reset_news_analysis.py`) resolves the Admin Panel's "Data Overview" display issue.
+    *   **Update (~14:40 UTC):** The first analysis cycle post-reset was successful for 30 tweets. The Admin Panel should now show data for these. Monitor for completion of the remaining ~50 tweets in the next 1-2 analysis cycles (approx. next 30-60 minutes).
+2.  Based on outcome of (1):
+    *   If resolved: Confirm stability and monitor ongoing analysis.
+    *   If not resolved: Analyze new logs from `NewsRepository` and potentially `NewsAnalyzer` / `NewsFetcher` to pinpoint the bottleneck (e.g., tweets not being fetched, LLM analysis failing, DB updates failing).
+3.  Address `main.py` test failures.
+4.  Monitor system stability and Twitter API rate limits.
+5.  Proceed with Telegram deployment once Admin Panel and analysis pipeline are confirmed stable. 

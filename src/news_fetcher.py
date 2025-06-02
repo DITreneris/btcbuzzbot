@@ -8,6 +8,7 @@ import sys
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
+import time
 
 # Ensure src is in the path if running directly
 if 'src' not in sys.path and os.path.exists('src'):
@@ -50,6 +51,7 @@ class NewsFetcher:
         self.bearer_token = os.environ.get('TWITTER_BEARER_TOKEN')
         self.twitter_client = None
         self.initialized = False
+        self.last_fetch_time = None  # Track last fetch time
 
         if not TWEEPY_AVAILABLE or not NEWS_REPO_AVAILABLE:
             logger.error("NewsFetcher initialization failed due to missing dependencies (tweepy or NewsRepository).")
@@ -210,10 +212,19 @@ class NewsFetcher:
         except Exception as e:
             logger.error(f"Error during news fetch cycle execution (run_cycle): {e}", exc_info=True)
 
-    async def fetch_and_store_tweets(self, query="(#Bitcoin OR #BTC) -is:retweet lang:en", max_results=100):
+    async def fetch_and_store_tweets(self, query="(#Bitcoin OR #BTC) -is:retweet lang:en", max_results=None):
         """Fetches recent tweets matching the query and stores them via NewsRepository."""
+        # Use a lower default max_results unless overridden
+        if max_results is None:
+            max_results = int(os.environ.get('NEWS_FETCH_MAX_RESULTS', 15))  # Default to 15
         logger.info(f"Starting fetch_and_store_tweets. Query: '{query}', Max results: {max_results}")
-        
+
+        # Warn if fetch is triggered too soon after last fetch
+        now = time.time()
+        if self.last_fetch_time is not None and (now - self.last_fetch_time) < 600:
+            logger.warning(f"Manual/news fetch triggered within 10 minutes of last fetch. Consider waiting to avoid rate limits. Last fetch was {int(now - self.last_fetch_time)} seconds ago.")
+        self.last_fetch_time = now
+
         if not self.initialized or not self.news_repo or not self.twitter_client:
             logger.error("Cannot fetch_and_store_tweets: NewsFetcher not fully initialized (repo or client missing).")
             return
